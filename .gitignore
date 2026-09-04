@@ -1,0 +1,16 @@
+# Secretos. NUNCA se suben.
+.dev.vars
+.env
+*.pem
+*.key
+service-account*.json
+
+# Dependencias y build
+node_modules/
+dist/
+.wrangler/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log

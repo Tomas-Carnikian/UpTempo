@@ -1,0 +1,38 @@
+name = "uptempo"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Un solo Worker para los 30 clientes. Nunca uno por cliente.
+# Agregar un cliente es insertar filas, no desplegar nada.
+
+[vars]
+ENTORNO = "dev"
+
+[observability]
+enabled = true
+
+# ---------------------------------------------------------------
+# Rutas de produccion. Se descomentan cuando la delegacion de
+# uptempo.uy a Cloudflare este efectiva.
+#
+# El wildcard de un solo nivel es lo que hace que dar de alta un
+# cliente no toque DNS ni certificados: Universal SSL cubre
+# uptempo.uy y *.uptempo.uy gratis. Nunca dos niveles.
+# ---------------------------------------------------------------
+# [[routes]]
+# pattern = "*.uptempo.uy/*"
+# zone_name = "uptempo.uy"
+#
+# [[routes]]
+# pattern = "uptempo.uy/*"
+# zone_name = "uptempo.uy"
+
+# ---------------------------------------------------------------
+# Secretos (NO van aca). Se cargan una sola vez con:
+#   npx wrangler secret put SUPABASE_URL
+#   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put PEPPER_TELEFONO
+# En local van en .dev.vars, que esta en .gitignore.
+# ---------------------------------------------------------------

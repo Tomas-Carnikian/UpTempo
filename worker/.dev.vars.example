@@ -1,0 +1,18 @@
+# Copiá este archivo como .dev.vars y completá los valores.
+# .dev.vars está en .gitignore y nunca se sube.
+
+# Supabase → Project Settings → API
+SUPABASE_URL="https://hharoqxzmssmgvrkkkhd.supabase.co"
+
+# Supabase → Project Settings → API → service_role (secret).
+# Esta clave bypassa RLS. Solo vive acá y en los secrets de Cloudflare.
+SUPABASE_SERVICE_ROLE_KEY="pegar-aca"
+
+# console.anthropic.com → API Keys
+ANTHROPIC_API_KEY="pegar-aca"
+
+# Cualquier string largo y aleatorio, inventado por vos una sola vez.
+# Es lo que hace que el hash del teléfono no se pueda revertir por
+# fuerza bruta. Si lo cambiás, los hashes viejos dejan de coincidir.
+# Generalo con: openssl rand -hex 32
+PEPPER_TELEFONO="pegar-aca"
