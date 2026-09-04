@@ -3,7 +3,7 @@ import type {
   Env, Negocio, Conversacion, MensajeEntrante, Respuesta,
   MensajeApi, RespuestaApi, Bloque, BloqueToolResult,
 } from './tipos';
-import { db, hashTelefono } from './db';
+import { db, hashIdentificador } from './db';
 import { construirSystem } from './prompt';
 import { HERRAMIENTAS, ejecutar } from './herramientas';
 
@@ -23,7 +23,7 @@ export async function responder(
   const t0 = Date.now();
   const sb = db(env);
   const esWhatsapp = entrada.canal === 'whatsapp';
-  const hash = await hashTelefono(env, entrada.identificador);
+  const hash = await hashIdentificador(env, entrada.identificador, entrada.canal);
 
   // ── Idempotencia. Meta reintenta el webhook si no le contestamos
   //    rapido; sin esto el asistente responde dos veces y cobra dos veces.

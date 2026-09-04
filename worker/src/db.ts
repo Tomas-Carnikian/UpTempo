@@ -92,15 +92,35 @@ async function cacheado(
 }
 
 /**
- * Hash del telefono del consumidor final, para metricas.
- *
- * Va con pepper porque un celular uruguayo son ~10^7 combinaciones:
- * un sha256 pelado se revierte por fuerza bruta en segundos y no
+ * Hash con pepper. Un celular uruguayo son ~10^7 combinaciones: un
+ * sha256 pelado se revierte por fuerza bruta en segundos y no
  * protegeria nada. El pepper vive en los secrets, nunca en la base.
  */
-export async function hashTelefono(env: Env, telefono: string): Promise<string> {
-  const normalizado = telefono.replace(/[^0-9]/g, '');
-  const datos = new TextEncoder().encode(`${env.PEPPER_TELEFONO}:${normalizado}`);
+export async function hashValor(env: Env, valor: string): Promise<string> {
+  const datos = new TextEncoder().encode(`${env.PEPPER_TELEFONO}:${valor}`);
   const digest = await crypto.subtle.digest('SHA-256', datos);
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Hash de un TELEFONO. Se queda solo con los digitos para que
+ * "+598 99 123 456" y "59899123456" sean la misma persona.
+ */
+export async function hashTelefono(env: Env, telefono: string): Promise<string> {
+  return hashValor(env, telefono.replace(/[^0-9]/g, ''));
+}
+
+/**
+ * Hash del identificador de una conversacion.
+ *
+ * OJO: en whatsapp el identificador es un telefono y hay que
+ * normalizarlo; en web es un id de sesion del navegador ("web-a3f9…")
+ * y NO se puede tocar. Normalizarlo le sacaba las letras y dejaba dos
+ * o tres digitos, con lo cual dos visitantes distintos terminaban en
+ * la misma conversacion — y leyendo lo que escribio el otro.
+ */
+export async function hashIdentificador(
+  env: Env, valor: string, canal: 'web' | 'whatsapp',
+): Promise<string> {
+  return canal === 'whatsapp' ? hashTelefono(env, valor) : hashValor(env, valor);
 }

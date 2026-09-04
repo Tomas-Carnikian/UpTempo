@@ -4,6 +4,10 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   PEPPER_TELEFONO: string;
   ENTORNO: string;
+  // Cuenta de servicio de Google. Opcionales: sin ellas el asistente
+  // funciona igual, pero no consulta ni escribe en ningun calendario.
+  GOOGLE_SA_EMAIL?: string;
+  GOOGLE_SA_PRIVATE_KEY?: string;
 }
 
 export type Canal = 'web' | 'whatsapp';

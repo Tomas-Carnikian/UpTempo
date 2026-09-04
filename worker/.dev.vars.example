@@ -30,3 +30,18 @@ ANTHROPIC_API_KEY="sk-ant-..."
 # NO se cambia nunca una vez que hay datos: los hashes viejos dejan de
 # coincidir y las métricas de personas repetidas se parten al medio.
 PEPPER_TELEFONO="pegar-aca"
+
+# ── Google Calendar (cuenta de servicio) ───────────────────────
+# OPCIONALES: sin estas dos el asistente funciona igual, pero no mira
+# ni escribe en ningún calendario. Van las dos o ninguna.
+#
+# Salen del JSON que descargás al crear la clave de la cuenta de
+# servicio en console.cloud.google.com.
+
+# El campo "client_email" del JSON.
+GOOGLE_SA_EMAIL="uptempo-agenda@tu-proyecto.iam.gserviceaccount.com"
+
+# El campo "private_key" del JSON, COMPLETO y tal como viene: entre
+# comillas dobles, con los \n escapados, desde -----BEGIN hasta -----END.
+# Copialo del JSON sin reformatearlo.
+GOOGLE_SA_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"

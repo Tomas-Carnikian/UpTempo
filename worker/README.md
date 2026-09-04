@@ -66,12 +66,31 @@ el modelo.
 persona lo confirma pueden pasar minutos, y en ese rato otra clienta pudo tomarlo. Por eso
 `agendar_turno` llama a `estaLibre` otra vez antes de escribir.
 
+## Google Calendar
+
+Autenticación por **cuenta de servicio**, no OAuth por cliente. El dueño comparte su calendario
+con la dirección de la cuenta de servicio y listo: 2 minutos por cliente, sin trámite de
+verificación de Google y sin refresh tokens que expiran a los 7 días mientras la app esté en
+estado *Testing* — eso último habría tirado abajo las 30 agendas juntas cada semana.
+
+`google.ts` firma el JWT con WebCrypto y habla con la REST API por fetch. `googleapis` no corre
+en Workers, y de todas formas son cien líneas contra 20 MB de dependencias.
+
+La disponibilidad se pide con **freeBusy**, no listando eventos: devuelve solo los horarios
+ocupados, sin títulos ni invitados. Menos datos ajenos adentro del sistema, que en un rubro con
+datos de salud importa.
+
+Al agendar, el orden es **primero el calendario, después la base**. El calendario es lo que el
+negocio mira; si Google falla, no hay turno y se deriva, en vez de confirmarle a alguien un
+turno que no quedó anotado en ningún lado. Si la base falla después, se borra el evento.
+
+Un cliente sin `calendar_id`, o sin las dos variables de Google cargadas, funciona igual: la
+agenda usa solo los turnos de la base.
+
 ## Lo que todavía no está
 
-- **Google Calendar** (paso 3). La agenda ya calcula huecos reales contra la base; falta sumar
-  los eventos del calendario como una fuente más de ocupación, dentro de `ocupados()` en
-  `agenda.ts`, y crear el evento en `agendar_turno`. El resto no cambia.
 - **WhatsApp** (paso 7). El webhook entra en `index.ts`, saca el `phone_number_id`, llama a
   `negocioPorNumero()` y usa el mismo `responder()`.
 - **El aviso al dueño** cuando se deriva (paso 7): hoy la conversación se marca y se silencia,
   pero nadie le avisa todavía.
+- **El recordatorio de 24 h** (paso 8), con un Cron Trigger.

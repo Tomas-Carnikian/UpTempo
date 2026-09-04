@@ -4,6 +4,7 @@ import { negocioPorSlug, invalidarCache } from './db';
 import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
 import { revisarEnv, textoProblemas } from './config';
+import { hayGoogle } from './google';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -47,7 +48,10 @@ app.get('/health', c => {
   return c.json({
     ok: problemas.length === 0,
     entorno: c.env.ENTORNO,
-    claves: problemas.length ? problemas : 'las cuatro están bien',
+    claves: problemas.length ? problemas : 'las obligatorias están bien',
+    google: hayGoogle(c.env)
+      ? 'configurado'
+      : 'sin configurar (la agenda usa solo los turnos de la base)',
   }, problemas.length ? 500 : 200);
 });
 
