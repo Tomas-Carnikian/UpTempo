@@ -7,7 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 # Agregar un cliente es insertar filas, no desplegar nada.
 
 [vars]
-ENTORNO = "dev"
+# En local gana el ENTORNO de .dev.vars. Este es el del Worker desplegado.
+ENTORNO = "prod"
 
 [observability]
 enabled = true

@@ -1,6 +1,9 @@
 # Copiá este archivo como .dev.vars y completá los valores.
 # .dev.vars está en .gitignore y nunca se sube.
 
+# Marca el entorno local. El Worker desplegado usa el de wrangler.toml.
+ENTORNO="dev"
+
 # ── Supabase ───────────────────────────────────────────────────
 # Project Settings → API Keys
 SUPABASE_URL="https://hharoqxzmssmgvrkkkhd.supabase.co"

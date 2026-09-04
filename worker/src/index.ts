@@ -5,7 +5,7 @@ import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
 import { paginaPanel } from './panel';
 import { paginaTurnos } from './pagina-turnos';
-import { revisarEnv, textoProblemas } from './config';
+import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
 
 /**
@@ -124,6 +124,16 @@ function panelDe(c: any, ruta: string) {
     return c.text(
       'Falta SUPABASE_PUBLISHABLE_KEY. Es la publishable key de Supabase ' +
       '(Settings → API Keys), la pública: va en el HTML del panel a propósito.', 500);
+  }
+  // Ultima linea antes de publicar la clave en una pagina web. Si acá
+  // hay una credencial secreta, el panel NO se sirve: es preferible un
+  // panel caído a una service_role escrita en el HTML.
+  if (esClaveSecreta(key)) {
+    console.error('[panel] SUPABASE_PUBLISHABLE_KEY contiene una clave secreta. Panel bloqueado.');
+    return c.text(
+      'El panel está apagado por seguridad: SUPABASE_PUBLISHABLE_KEY tiene una clave secreta, ' +
+      'y esa variable se imprime en el HTML. Cargá la publishable (sb_publishable_…) y rotá la ' +
+      'secreta que quedó mal puesta.', 500);
   }
   return c.html(paginaPanel(c.env.SUPABASE_URL.trim(), key, ruta));
 }

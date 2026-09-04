@@ -13,6 +13,7 @@
 import { buscarServicio, buscarHuecos, estaLibre, localAUTC, formatearHueco, cargarContexto, FRANJAS } from '../src/agenda';
 import { construirSystem } from '../src/prompt';
 import { hashIdentificador } from '../src/db';
+import { esClaveSecreta } from '../src/config';
 import type { Negocio } from '../src/tipos';
 
 let ok = 0, mal = 0;
@@ -252,6 +253,17 @@ async function main() {
   comprobar('el mismo visitante vuelve a su conversación',
     web1 === await hashIdentificador(envFalso, 'web-a3f9x1', 'web'));
   comprobar('el hash tiene 64 caracteres', web1.length === 64, String(web1.length));
+
+  console.log('\n— guarda de claves —');
+  comprobar('reconoce una secret key nueva', esClaveSecreta('sb_secret_AbCd1234efgh'));
+  comprobar('deja pasar una publishable', !esClaveSecreta('sb_publishable_AbCd1234efgh'));
+  // JWT viejo de Supabase con role=service_role en el payload
+  const jwtServicio = 'x.' + btoa(JSON.stringify({ role: 'service_role', iss: 'supabase' }))
+    .replace(/=+$/, '') + '.y';
+  comprobar('reconoce el service_role del esquema viejo', esClaveSecreta(jwtServicio));
+  const jwtAnon = 'x.' + btoa(JSON.stringify({ role: 'anon', iss: 'supabase' }))
+    .replace(/=+$/, '') + '.y';
+  comprobar('deja pasar el anon del esquema viejo', !esClaveSecreta(jwtAnon));
 
   console.log('\n— prompt —');
   const sys = construirSystem(SOLE);
