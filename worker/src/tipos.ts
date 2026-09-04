@@ -4,6 +4,9 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   PEPPER_TELEFONO: string;
   ENTORNO: string;
+  // Publishable key de Supabase. Es PUBLICA por diseño: va escrita en
+  // el HTML del panel. Solo sirve con el JWT del usuario y RLS.
+  SUPABASE_PUBLISHABLE_KEY?: string;
   // Cuenta de servicio de Google. Opcionales: sin ellas el asistente
   // funciona igual, pero no consulta ni escribe en ningun calendario.
   GOOGLE_SA_EMAIL?: string;

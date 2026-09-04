@@ -3,6 +3,7 @@ import type { Env, MensajeEntrante } from './tipos';
 import { negocioPorSlug, invalidarCache } from './db';
 import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
+import { paginaPanel } from './panel';
 import { revisarEnv, textoProblemas } from './config';
 import { hayGoogle } from './google';
 
@@ -18,14 +19,26 @@ import { hayGoogle } from './google';
  */
 const app = new Hono<{ Bindings: Env }>();
 
+/**
+ * Subdominios del sistema. No pueden ser el slug de un cliente, y
+ * conviene que esten reservados desde el principio: renombrarle el
+ * subdominio a una clinica despues de imprimirlo en una tarjeta no
+ * es una conversacion agradable.
+ */
+const RESERVADOS = new Set(['panel', 'www', 'api', 'admin', 'app', 'demo', 'uptempo', 'mail', 'blog']);
+
 /** Saca el slug del host, o null si es un host que no es de cliente. */
 function slugDeHost(host: string): string | null {
   const h = host.split(':')[0].toLowerCase();
   if (h.endsWith('.uptempo.uy')) {
     const sub = h.slice(0, -'.uptempo.uy'.length);
-    return sub && !sub.includes('.') && sub !== 'www' ? sub : null;
+    return sub && !sub.includes('.') && !RESERVADOS.has(sub) ? sub : null;
   }
   return null;
+}
+
+function esHostDelPanel(host: string): boolean {
+  return host.split(':')[0].toLowerCase() === 'panel.uptempo.uy';
 }
 
 /**
@@ -58,12 +71,90 @@ app.get('/health', c => {
 /** Purga el cache de config sin desplegar. Util despues de editar precios. */
 app.post('/admin/recargar', c => { invalidarCache(); return c.json({ ok: true }); });
 
+// ── Panel del dueño ─────────────────────────────────────────────
+app.get('/panel', c => panelDe(c, '/panel'));
+
+/**
+ * Entrar al panel SIN mandar correo. Solo desde localhost.
+ *
+ * Supabase limita los correos de auth a 2 por hora y en el plan
+ * gratis ese numero no se puede subir, asi que probar el panel tres
+ * veces seguidas es imposible por correo. Esto usa la Admin API para
+ * generar el mismo enlace magico y saltear el envio.
+ *
+ * La puerta esta cerrada por el HOST, no por una variable de entorno:
+ * en produccion el host nunca es localhost, asi que no hay forma de
+ * olvidarse de apagarla.
+ */
+app.get('/panel/enlace-dev', async c => {
+  const host = (c.req.header('host') ?? '').split(':')[0].toLowerCase();
+  if (host !== 'localhost' && host !== '127.0.0.1') return c.notFound();
+
+  const email = (c.req.query('email') ?? '').trim();
+  if (!email) return c.text('Falta ?email=', 400);
+
+  const r = await fetch(`${c.env.SUPABASE_URL.trim()}/auth/v1/admin/generate_link`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      apikey: c.env.SUPABASE_SERVICE_ROLE_KEY.trim(),
+      authorization: `Bearer ${c.env.SUPABASE_SERVICE_ROLE_KEY.trim()}`,
+    },
+    // OJO: en la API REST `redirect_to` va en la RAIZ del body. Dentro
+    // de `options` (que es la forma del SDK de JS) se ignora en
+    // silencio y Supabase manda al Site URL del proyecto, que por
+    // defecto es http://localhost:3000.
+    body: JSON.stringify({
+      type: 'magiclink',
+      email,
+      redirect_to: `http://${c.req.header('host')}/panel`,
+    }),
+  });
+  if (!r.ok) return c.text(`Supabase: ${r.status} ${(await r.text()).slice(0, 300)}`, 500);
+
+  const j = await r.json() as { action_link?: string };
+  if (!j.action_link) return c.text('Supabase no devolvió un enlace.', 500);
+  return c.redirect(j.action_link, 302);
+});
+
+function panelDe(c: any, ruta: string) {
+  const key = (c.env.SUPABASE_PUBLISHABLE_KEY ?? '').trim();
+  if (!key) {
+    return c.text(
+      'Falta SUPABASE_PUBLISHABLE_KEY. Es la publishable key de Supabase ' +
+      '(Settings → API Keys), la pública: va en el HTML del panel a propósito.', 500);
+  }
+  return c.html(paginaPanel(c.env.SUPABASE_URL.trim(), key, ruta));
+}
+
+/**
+ * Puente para el enlace del correo.
+ *
+ * Los tokens vuelven en el fragmento (#access_token=…), que el
+ * navegador NO manda al servidor: desde acá no hay forma de saber que
+ * la visita trae una sesión. Si por lo que sea el enlace cae en la
+ * raíz en vez de en /panel, esta página lo reenvía con el fragmento
+ * intacto en vez de dejar al dueño mirando un texto que no entiende.
+ */
+const PUENTE = `<!doctype html><meta charset="utf-8">
+<title>Uptempo</title>
+<style>body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+margin:14vh auto;max-width:34rem;padding:0 1.2rem;color:#0b0b0b;background:#f9f9f7}
+a{color:#2a78d6}@media(prefers-color-scheme:dark){body{background:#0d0d0d;color:#fff}}</style>
+<p id="m">Uptempo. <a href="/panel">Ir al panel</a></p>
+<script>
+if (location.hash && location.hash.indexOf('access_token') !== -1) {
+  document.getElementById('m').textContent = 'Entrando…';
+  location.replace('/panel' + location.hash);
+}
+</script>`;
+
 // ── Chat web ────────────────────────────────────────────────────
 app.get('/', async c => {
-  const slug = slugDeHost(c.req.header('host') ?? '');
-  if (!slug) {
-    return c.text('Uptempo. Para probar un negocio: /c/<slug>', 200);
-  }
+  const host = c.req.header('host') ?? '';
+  if (esHostDelPanel(host)) return panelDe(c, '/');
+  const slug = slugDeHost(host);
+  if (!slug) return c.html(PUENTE);
   return chatDe(c, slug, '/api/chat');
 });
 

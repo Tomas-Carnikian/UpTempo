@@ -5,6 +5,12 @@
 # Project Settings → API Keys
 SUPABASE_URL="https://hharoqxzmssmgvrkkkhd.supabase.co"
 
+# La PUBLISHABLE key, la que empieza con sb_publishable_.
+# Es pública a propósito: va escrita en el HTML del panel. Sola no
+# sirve para nada — solo funciona con el JWT del usuario, y RLS lo
+# encierra en su propio cliente.
+SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
+
 # La SECRET KEY, la que empieza con sb_secret_
 # (Settings → API Keys → "Secret keys" → fila "default" → revelar y copiar)
 #
