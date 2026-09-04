@@ -4,6 +4,7 @@ import { negocioPorSlug, invalidarCache } from './db';
 import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
 import { paginaPanel } from './panel';
+import { paginaTurnos } from './pagina-turnos';
 import { revisarEnv, textoProblemas } from './config';
 import { hayGoogle } from './google';
 
@@ -149,16 +150,37 @@ if (location.hash && location.hash.indexOf('access_token') !== -1) {
 }
 </script>`;
 
-// ── Chat web ────────────────────────────────────────────────────
+// ── Página de turnos y chat ─────────────────────────────────────
+//
+// En el subdominio del cliente, la raíz es la PÁGINA DE TURNOS: es lo
+// que se publica y lo que ve una clienta. El chat vive en /chat y es
+// para los demos de venta, donde todavía no hay un WhatsApp que usar.
 app.get('/', async c => {
   const host = c.req.header('host') ?? '';
   if (esHostDelPanel(host)) return panelDe(c, '/');
   const slug = slugDeHost(host);
   if (!slug) return c.html(PUENTE);
+  return turnosDe(c, slug);
+});
+
+app.get('/chat', async c => {
+  const slug = slugDeHost(c.req.header('host') ?? '');
+  if (!slug) return c.notFound();
   return chatDe(c, slug, '/api/chat');
 });
 
+// En local no hay subdominios: /p/<slug> es la página, /c/<slug> el chat.
+app.get('/p/:slug', async c => turnosDe(c, c.req.param('slug')));
 app.get('/c/:slug', async c => chatDe(c, c.req.param('slug'), `/c/${c.req.param('slug')}/chat`));
+
+async function turnosDe(c: any, slug: string) {
+  const negocio = await negocioPorSlug(c.env, slug);
+  if (!negocio) return c.text(`No encuentro el negocio "${slug}".`, 404);
+  return c.html(paginaTurnos(negocio), 200, {
+    // La página cambia cuando cambian los precios, no en cada visita.
+    'cache-control': 'public, max-age=120, stale-while-revalidate=600',
+  });
+}
 
 async function chatDe(c: any, slug: string, rutaApi: string) {
   const negocio = await negocioPorSlug(c.env, slug);

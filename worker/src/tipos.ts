@@ -33,6 +33,8 @@ export interface Cliente {
   direccion: string | null;
   maps_url: string | null;
   google_place_id: string | null;
+  lat: number | null;
+  lon: number | null;
   formas_pago: string | null;
   descripcion_corta: string | null;
   modelo: string;
