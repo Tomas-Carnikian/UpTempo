@@ -11,6 +11,11 @@ export interface Env {
   // funciona igual, pero no consulta ni escribe en ningun calendario.
   GOOGLE_SA_EMAIL?: string;
   GOOGLE_SA_PRIVATE_KEY?: string;
+  // WhatsApp Cloud API. Un solo token para todos los clientes.
+  WA_TOKEN?: string;         // System User token de la app
+  WA_VERIFY_TOKEN?: string;  // lo inventamos nosotros y se pega en Meta
+  WA_APP_SECRET?: string;    // para validar la firma de cada webhook
+  WA_API_VERSION?: string;   // opcional, ej "v21.0"
 }
 
 export type Canal = 'web' | 'whatsapp';

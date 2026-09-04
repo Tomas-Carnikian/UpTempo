@@ -54,3 +54,26 @@ GOOGLE_SA_EMAIL="uptempo-agenda@tu-proyecto.iam.gserviceaccount.com"
 # comillas dobles, con los \n escapados, desde -----BEGIN hasta -----END.
 # Copialo del JSON sin reformatearlo.
 GOOGLE_SA_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"
+
+# ── WhatsApp Cloud API ─────────────────────────────────────────
+# OPCIONALES, pero las TRES van juntas: WhatsApp a medio configurar es
+# peor que sin configurar (el webhook acepta mensajes y no los puede
+# contestar, o no valida la firma).
+
+# Token de acceso de la app de Meta. Para probar sirve el temporal de
+# 24 h que muestra el panel; para producción, un System User token que
+# no expira. Uno solo para todos los clientes.
+WA_TOKEN="EAAG..."
+
+# Lo inventás vos y lo pegás IGUAL en Meta al configurar el webhook.
+# Meta te lo devuelve en la verificación para probar que sos vos.
+WA_VERIFY_TOKEN="uptempo_..."
+
+# App Secret de la app de Meta (Configuración → Básica → Mostrar).
+# Con esto se valida la firma de cada webhook. Sin esto, cualquiera que
+# descubra la URL puede hacer que el asistente escriba a números reales.
+WA_APP_SECRET="..."
+
+# Opcional. Solo si la versión de la Graph API que usa el código
+# (v21.0) no coincide con la que te muestre el panel de tu app.
+# WA_API_VERSION="v21.0"

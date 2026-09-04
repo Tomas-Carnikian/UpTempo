@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import type { Env, MensajeEntrante } from './tipos';
-import { negocioPorSlug, invalidarCache } from './db';
+import { negocioPorSlug, negocioPorNumero, invalidarCache } from './db';
+import {
+  verificarWebhook, firmaValida, parsearWebhook, enviarTexto, marcarLeido, hayWhatsapp,
+} from './whatsapp';
 import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
 import { paginaPanel } from './panel';
@@ -66,6 +69,9 @@ app.get('/health', c => {
     google: hayGoogle(c.env)
       ? 'configurado'
       : 'sin configurar (la agenda usa solo los turnos de la base)',
+    whatsapp: hayWhatsapp(c.env)
+      ? 'configurado'
+      : 'sin configurar (solo funciona el chat web)',
   }, problemas.length ? 500 : 200);
 });
 
@@ -232,8 +238,66 @@ async function conversar(c: any, slug: string) {
   }
 }
 
-// ── WhatsApp: paso 7 ────────────────────────────────────────────
-// El webhook entra acá, saca el phone_number_id, llama a
-// negocioPorNumero() y usa el MISMO responder(). Mismo cerebro.
+// ── WhatsApp ────────────────────────────────────────────────────
+
+/** Verificación de la URL. Meta pega este GET una sola vez, al configurarla. */
+app.get('/wa/webhook', c => verificarWebhook(c.env, new URL(c.req.url)));
+
+/**
+ * Los mensajes.
+ *
+ * Se le contesta 200 a Meta ANTES de procesar: si tardamos más de unos
+ * segundos, Meta da el webhook por fallido y lo reintenta, y entonces
+ * el asistente contestaría dos veces. Por eso el trabajo real va en
+ * waitUntil, y por eso existe la deduplicación por wa_message_id.
+ */
+app.post('/wa/webhook', async c => {
+  const crudo = await c.req.text();
+
+  // La firma es lo único que separa este webhook de cualquiera que
+  // descubra la URL y haga que el asistente escriba a números reales
+  // en nombre de una clínica.
+  if (!(await firmaValida(c.env, crudo, c.req.header('x-hub-signature-256') ?? null))) {
+    console.error('[wa] firma inválida, mensaje descartado');
+    return c.text('firma inválida', 403);
+  }
+
+  let entrantes: ReturnType<typeof parsearWebhook> = [];
+  try {
+    entrantes = parsearWebhook(JSON.parse(crudo));
+  } catch (e: any) {
+    console.error('[wa] no pude leer el webhook:', e?.message);
+    return c.text('ok', 200); // 200 igual: no queremos que reintente algo ilegible
+  }
+
+  if (entrantes.length) c.executionCtx.waitUntil(procesarLote(c.env, entrantes));
+  return c.text('ok', 200);
+});
+
+async function procesarLote(env: Env, entrantes: ReturnType<typeof parsearWebhook>) {
+  for (const e of entrantes) {
+    try {
+      // A qué negocio pertenece lo dice el número que RECIBIÓ el
+      // mensaje, nunca quien lo manda.
+      const negocio = await negocioPorNumero(env, e.phoneNumberId);
+      if (!negocio) {
+        console.error('[wa] llegó un mensaje a un número que no está en la base:', e.phoneNumberId);
+        continue;
+      }
+
+      if (e.mensaje.waMessageId) {
+        await marcarLeido(env, e.phoneNumberId, e.mensaje.waMessageId);
+      }
+
+      const r = await responder(env, negocio, e.mensaje);
+      // texto null = conversación derivada y en silencio. No se contesta.
+      if (r.texto) {
+        await enviarTexto(env, e.phoneNumberId, e.mensaje.identificador, r.texto);
+      }
+    } catch (err: any) {
+      console.error('[wa]', e.phoneNumberId, err?.message, err?.stack);
+    }
+  }
+}
 
 export default app;

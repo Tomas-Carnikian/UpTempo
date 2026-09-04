@@ -6,6 +6,7 @@ import type {
 import { db, hashIdentificador } from './db';
 import { construirSystem } from './prompt';
 import { HERRAMIENTAS, ejecutar } from './herramientas';
+import { vinoDeLaPagina } from './whatsapp';
 
 const MAX_VUELTAS = 5;       // tope del loop de herramientas
 const HISTORIAL = 20;        // mensajes de contexto que se recuperan
@@ -33,7 +34,13 @@ export async function responder(
     if (ya) return { texto: null, conversacionId: '', derivada: false, latenciaMs: 0 };
   }
 
-  const conversacion = await obtenerConversacion(sb, negocio, entrada, hash, esWhatsapp);
+  const { conversacion, esNueva } = await obtenerConversacion(sb, negocio, entrada, hash, esWhatsapp);
+
+  // Si el primer mensaje de la conversación es el texto que escriben
+  // los botones de la página de turnos, la conversación vino de ahí.
+  // Es la única forma de atribuirla: WhatsApp no lleva metadatos.
+  const dePagina = esNueva ? vinoDeLaPagina(entrada.texto) : null;
+  const origenEvento = dePagina ? 'pagina' : entrada.canal;
 
   await sb.from('mensajes').insert({
     conversacion_id: conversacion.id,
@@ -106,8 +113,9 @@ export async function responder(
 
   await guardarRespuesta(sb, conversacion.id, textoFinal);
   const latencia = Date.now() - t0;
-  await registrarEvento(sb, negocio, conversacion, 'consulta', latencia, entrada.canal);
-  if (derivo) await registrarEvento(sb, negocio, conversacion, 'derivacion', null, entrada.canal);
+  await registrarEvento(sb, negocio, conversacion, 'consulta', latencia, origenEvento,
+                        dePagina?.servicio);
+  if (derivo) await registrarEvento(sb, negocio, conversacion, 'derivacion', null, origenEvento);
 
   return { texto: textoFinal, conversacionId: conversacion.id, derivada: derivo, latenciaMs: latencia };
 }
@@ -153,7 +161,7 @@ async function llamarModelo(
 async function obtenerConversacion(
   sb: SupabaseClient, negocio: Negocio, entrada: MensajeEntrante,
   hash: string, guardarTelefono: boolean,
-): Promise<Conversacion> {
+): Promise<{ conversacion: Conversacion; esNueva: boolean }> {
   const corte = new Date(Date.now() - VENTANA_CONV_H * 3600_000).toISOString();
 
   const { data: previa } = await sb.from('conversaciones')
@@ -165,7 +173,7 @@ async function obtenerConversacion(
     .order('ultimo_mensaje_en', { ascending: false })
     .limit(1).maybeSingle();
 
-  if (previa) return previa as Conversacion;
+  if (previa) return { conversacion: previa as Conversacion, esNueva: false };
 
   const { data, error } = await sb.from('conversaciones').insert({
     cliente_id: negocio.cliente.id,
@@ -181,7 +189,7 @@ async function obtenerConversacion(
     .single();
 
   if (error) throw new Error(`No pude abrir la conversacion: ${error.message}`);
-  return data as Conversacion;
+  return { conversacion: data as Conversacion, esNueva: true };
 }
 
 async function cargarHistorial(sb: SupabaseClient, conversacionId: string): Promise<MensajeApi[]> {
