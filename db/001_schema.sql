@@ -247,6 +247,9 @@ create table if not exists public.turnos (
   servicio_nombre         text not null,
   inicio                  timestamptz not null,
   fin                     timestamptz not null,
+  -- Respiro DESPUES del turno. Se congela del servicio al agendar,
+  -- para que cambiar el buffer manana no mueva los turnos de hoy.
+  buffer_min              int  not null default 0 check (buffer_min >= 0),
   nombre                  text not null,
   telefono                text,
   telefono_hash           text,

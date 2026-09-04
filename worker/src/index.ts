@@ -3,6 +3,7 @@ import type { Env, MensajeEntrante } from './tipos';
 import { negocioPorSlug, invalidarCache } from './db';
 import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
+import { revisarEnv, textoProblemas } from './config';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -26,7 +27,29 @@ function slugDeHost(host: string): string | null {
   return null;
 }
 
-app.get('/health', c => c.json({ ok: true, entorno: c.env.ENTORNO }));
+/**
+ * Antes que nada, las claves. Una credencial mal pegada produce
+ * errores ilegibles ("Invalid header value") a tres capas de
+ * distancia; mejor cortar acá y decir cual es y por que.
+ */
+app.use('*', async (c, next) => {
+  if (c.req.path === '/health') return next();
+  const problemas = revisarEnv(c.env);
+  if (problemas.length) {
+    console.error('[config]', problemas.map(p => `${p.clave}: ${p.que}`).join(' | '));
+    return c.text(textoProblemas(problemas), 500);
+  }
+  return next();
+});
+
+app.get('/health', c => {
+  const problemas = revisarEnv(c.env);
+  return c.json({
+    ok: problemas.length === 0,
+    entorno: c.env.ENTORNO,
+    claves: problemas.length ? problemas : 'las cuatro están bien',
+  }, problemas.length ? 500 : 200);
+});
 
 /** Purga el cache de config sin desplegar. Util despues de editar precios. */
 app.post('/admin/recargar', c => { invalidarCache(); return c.json({ ok: true }); });

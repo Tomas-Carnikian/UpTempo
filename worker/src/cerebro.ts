@@ -114,25 +114,38 @@ export async function responder(
 
 // ────────────────────────────────────────────────────────────────
 
+/**
+ * Sin `temperature`: los modelos nuevos ya no la aceptan y devuelven
+ * 400. Igual no la necesitamos — que el asistente no invente un precio
+ * no sale de bajar la temperatura, sale de que la unica fuente sea la
+ * base de conocimiento y de que los horarios salgan de una herramienta.
+ *
+ * Reintenta ante 429 (sobrecarga) y 5xx, que en produccion aparecen
+ * solos y no son un bug: son la tarde de un sabado.
+ */
 async function llamarModelo(
-  env: Env, modelo: string, system: unknown, mensajes: MensajeApi[],
+  env: Env, modelo: string, system: unknown, mensajes: MensajeApi[], intento = 0,
 ): Promise<RespuestaApi> {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
+      'x-api-key': env.ANTHROPIC_API_KEY.trim(),
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
       model: modelo,
-      max_tokens: 700,        // una recepcionista escribe corto
-      temperature: 0.3,       // bajo: no queremos creatividad con los precios
+      max_tokens: 700,   // una recepcionista escribe corto
       system,
       tools: HERRAMIENTAS,
       messages: mensajes,
     }),
   });
+
+  if ((r.status === 429 || r.status >= 500) && intento < 2) {
+    await new Promise(res => setTimeout(res, 500 * Math.pow(2, intento)));
+    return llamarModelo(env, modelo, system, mensajes, intento + 1);
+  }
   if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 400)}`);
   return await r.json() as RespuestaApi;
 }

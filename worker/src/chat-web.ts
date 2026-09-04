@@ -43,6 +43,10 @@ export function paginaChat(n: Negocio, rutaApi: string): string {
          background: var(--fondo); box-shadow: 0 0 40px rgba(0,0,0,.12); }
   header { background: var(--primario); color: #fff; padding: 12px 16px;
            display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 2; }
+  #reset { margin-left: auto; background: rgba(255,255,255,.16); border: 0; color: #fff;
+           width: auto; height: auto; border-radius: 14px; padding: 5px 10px;
+           font-size: 12px; cursor: pointer; }
+  #reset:hover { background: rgba(255,255,255,.28); }
   .av { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.22);
         display: grid; place-items: center; font-weight: 600; font-size: 15px; flex: none; }
   .tit { font-weight: 600; line-height: 1.2; }
@@ -78,6 +82,7 @@ export function paginaChat(n: Negocio, rutaApi: string): string {
       <div class="tit">${esc(c.nombre)}</div>
       <div class="sub">en línea</div>
     </div>
+    <button type="button" id="reset" title="Empezar una conversación nueva">nueva</button>
   </header>
   ${c.estado === 'demo' ? '<div class="demo">Demostración. Este no es el WhatsApp real del negocio.</div>' : ''}
   <div id="hilo"></div>
@@ -159,6 +164,14 @@ export function paginaChat(n: Negocio, rutaApi: string): string {
   });
   document.querySelectorAll('.sug button').forEach(function (b) {
     b.addEventListener('click', function () { enviar(b.dataset.t); });
+  });
+
+  // Conversación nueva: hace falta para probar las derivaciones (después
+  // de derivar, el bot se calla 24 h en esa conversación) y para grabar
+  // un demo desde cero.
+  document.getElementById('reset').addEventListener('click', function () {
+    try { localStorage.removeItem('uptempo_sesion'); } catch (e) {}
+    location.reload();
   });
 
   burbuja(${JSON.stringify('Hola! Soy de ' + c.nombre + '. ¿En qué te puedo ayudar?')}, 'otro');

@@ -1,18 +1,32 @@
 # Copiá este archivo como .dev.vars y completá los valores.
 # .dev.vars está en .gitignore y nunca se sube.
 
-# Supabase → Project Settings → API
+# ── Supabase ───────────────────────────────────────────────────
+# Project Settings → API Keys
 SUPABASE_URL="https://hharoqxzmssmgvrkkkhd.supabase.co"
 
-# Supabase → Project Settings → API → service_role (secret).
-# Esta clave bypassa RLS. Solo vive acá y en los secrets de Cloudflare.
-SUPABASE_SERVICE_ROLE_KEY="pegar-aca"
+# La SECRET KEY, la que empieza con sb_secret_
+# (Settings → API Keys → "Secret keys" → fila "default" → revelar y copiar)
+#
+# Este proyecto usa el esquema nuevo de claves de Supabase:
+#   sb_publishable_...  reemplaza a la vieja anon key      → rol anon
+#   sb_secret_...       reemplaza a la vieja service_role  → rol service_role
+# La secret key bypassa RLS. Vive acá y en los secrets de Cloudflare,
+# nunca en el navegador ni en git. La publishable NO sirve para el Worker.
+SUPABASE_SERVICE_ROLE_KEY="sb_secret_..."
 
-# console.anthropic.com → API Keys
-ANTHROPIC_API_KEY="pegar-aca"
+# ── Anthropic ──────────────────────────────────────────────────
+# console.anthropic.com → Settings → API keys → Create Key
+# Ojo: la cuenta necesita crédito cargado o la API responde error de saldo.
+ANTHROPIC_API_KEY="sk-ant-..."
 
-# Cualquier string largo y aleatorio, inventado por vos una sola vez.
-# Es lo que hace que el hash del teléfono no se pueda revertir por
-# fuerza bruta. Si lo cambiás, los hashes viejos dejan de coincidir.
-# Generalo con: openssl rand -hex 32
+# ── Pepper del hash de teléfono ────────────────────────────────
+# Lo inventás vos, una sola vez. Es lo que hace que el hash del
+# teléfono no se pueda revertir por fuerza bruta.
+#
+# En PowerShell:
+#   -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+#
+# NO se cambia nunca una vez que hay datos: los hashes viejos dejan de
+# coincidir y las métricas de personas repetidas se parten al medio.
 PEPPER_TELEFONO="pegar-aca"

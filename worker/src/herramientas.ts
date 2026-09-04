@@ -143,6 +143,7 @@ export async function ejecutar(
         servicio_nombre: servicio.nombre,
         inicio: parseado.toISOString(),
         fin: fin.toISOString(),
+        buffer_min: servicio.buffer_min,
         nombre: String(args.nombre ?? '').trim(),
         telefono,
         telefono_hash: await hashTelefono(env, telefono),

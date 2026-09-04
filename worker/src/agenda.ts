@@ -111,14 +111,18 @@ async function ocupados(
   sb: SupabaseClient, n: Negocio, desde: Date, hasta: Date,
 ): Promise<Array<{ inicio: number; fin: number }>> {
   const { data } = await sb.from('turnos')
-    .select('inicio, fin')
+    .select('inicio, fin, buffer_min')
     .eq('cliente_id', n.cliente.id)
     .in('estado', ['agendado', 'confirmado'])
     .lt('inicio', hasta.toISOString())
     .gt('fin', desde.toISOString());
   return (data ?? []).map(t => ({
     inicio: new Date(t.inicio as string).getTime(),
-    fin: new Date(t.fin as string).getTime(),
+    // El buffer del turno que YA existe cuenta como ocupado: si uno
+    // termina 14:00 con 10 min de respiro, el siguiente no puede
+    // empezar 14:00. Sin esto la proxima clienta entra mientras la
+    // anterior se esta vistiendo.
+    fin: new Date(t.fin as string).getTime() + ((t.buffer_min as number | null) ?? 0) * 60_000,
   }));
   // Paso 3: acá se concatenan los eventos de Google Calendar.
 }

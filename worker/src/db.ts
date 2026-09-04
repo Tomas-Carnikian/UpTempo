@@ -9,7 +9,9 @@ import type { Env, Negocio, Cliente, Servicio, Horario } from './tipos';
  * por el que entro el mensaje. Nunca de algo que mande el usuario.
  */
 export function db(env: Env): SupabaseClient {
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  // trim() a proposito: un espacio o un salto de linea pegado sin
+  // querer en .dev.vars rompe la cabecera HTTP con un error ilegible.
+  return createClient(env.SUPABASE_URL.trim(), env.SUPABASE_SERVICE_ROLE_KEY.trim(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

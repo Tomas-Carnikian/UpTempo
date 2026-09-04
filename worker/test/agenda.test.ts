@@ -54,7 +54,7 @@ const SOLE: Negocio = {
 function sbFalso(opts: {
   feriados?: string[];
   excepciones?: Record<string, { cerrado: boolean; desde?: string; hasta?: string }>;
-  turnos?: Array<{ inicio: string; fin: string }>;
+  turnos?: Array<{ inicio: string; fin: string; buffer_min?: number }>;
 } = {}) {
   const { feriados = [], excepciones = {}, turnos = [] } = opts;
   return {
@@ -152,6 +152,28 @@ async function main() {
   comprobar('estaLibre dice que no a las 18:30 para 60 min',
     (await estaLibre(sbFalso(), SOLE, SOLE.servicios[0], localAUTC('2026-09-08', '18:30', TZ))) === false);
 
+  console.log('\n— el respiro entre turnos —');
+  // Un turno de 13:00 a 14:00 con 10 minutos de buffer: el siguiente
+  // NO puede empezar 14:00, sí puede 14:15.
+  const conBuffer = [{
+    inicio: '2026-09-09T16:00:00.000Z',  // 13:00 en Montevideo
+    fin:    '2026-09-09T17:00:00.000Z',  // 14:00
+    buffer_min: 10,
+  }];
+  comprobar('no deja empezar justo cuando termina el anterior',
+    (await estaLibre(sbFalso({ turnos: conBuffer }), SOLE, SOLE.servicios[2],
+      localAUTC('2026-09-09', '14:00', TZ))) === false);
+  comprobar('sí deja después del respiro',
+    (await estaLibre(sbFalso({ turnos: conBuffer }), SOLE, SOLE.servicios[2],
+      localAUTC('2026-09-09', '14:15', TZ))) === true);
+  comprobar('tampoco deja terminar encima del anterior',
+    (await estaLibre(sbFalso({ turnos: conBuffer }), SOLE, SOLE.servicios[2],
+      localAUTC('2026-09-09', '12:30', TZ))) === false);
+  const huecosBuf = await buscarHuecos(sbFalso({ turnos: conBuffer }), SOLE, SOLE.servicios[2], '2026-09-09');
+  comprobar('no ofrece las 14:00 del día ocupado',
+    !huecosBuf.some(h => h.inicio.toISOString().slice(0, 10) === '2026-09-09' && hhmm(h.inicio) === '14:00'),
+    huecosBuf.map(h => hhmm(h.inicio)).join(' '));
+
   console.log('\n— prompt —');
   const sys = construirSystem(SOLE);
   comprobar('son dos bloques', sys.length === 2);
@@ -163,6 +185,8 @@ async function main() {
   comprobar('está la regla de la foto', /foto/i.test(sys[0].text));
   comprobar('está la prohibición de consejo clínico', /consejo clínico/i.test(sys[0].text));
   comprobar('prohíbe las viñetas', /viñetas/i.test(sys[0].text));
+  comprobar('prohíbe agradecer y los emojis', /no uses emojis/i.test(sys[0].text));
+  comprobar('ofrece agendar una sola vez', /una sola vez/i.test(sys[0].text));
 
   console.log(`\n${ok} bien, ${mal} mal\n`);
   process.exit(mal === 0 ? 0 : 1);
