@@ -97,6 +97,49 @@ const diaSem = (d: Date) => new Intl.DateTimeFormat('es-UY',
 const fechaDe = (d: Date) => new Intl.DateTimeFormat('en-CA',
   { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
+/**
+ * La próxima fecha que caiga en ese día de la semana (ISO: 1 = lunes),
+ * al menos `minDias` días adelante.
+ *
+ * Las fechas de las pruebas TIENEN que ser relativas a hoy. Con fechas
+ * fijas la suite caduca sola: un caso escrito para "el lunes 7" empieza
+ * a fallar cuando llega el lunes 7, porque la agenda no ofrece nada
+ * dentro de las próximas 2 horas. El código estaba bien y el test rojo.
+ */
+function proximoLunes(minDias = 3): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + minDias);
+  for (let i = 0; i < 8; i++) {
+    if ((d.getUTCDay() === 0 ? 7 : d.getUTCDay()) === 1) break;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function masDias(fecha: string, n: number): string {
+  const d = new Date(`${fecha}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Todos los días salen del MISMO lunes futuro: así el sábado siempre
+// cae después del lunes y dentro del rango que carga el contexto.
+const LUNES     = proximoLunes();
+const MARTES    = masDias(LUNES, 1);
+const MIERCOLES = masDias(LUNES, 2);
+const VIERNES   = masDias(LUNES, 4);
+const SABADO    = masDias(LUNES, 5);
+const DOMINGO   = masDias(LUNES, 6);
+
+/** Un intervalo ocupado, escrito en hora local del negocio. */
+function ocupa(fecha: string, desde: string, hasta: string, buffer_min?: number) {
+  return {
+    inicio: localAUTC(fecha, desde, TZ).toISOString(),
+    fin: localAUTC(fecha, hasta, TZ).toISOString(),
+    ...(buffer_min === undefined ? {} : { buffer_min }),
+  };
+}
+
 async function main() {
   console.log('\n— zonas horarias —');
   const t = localAUTC('2026-09-08', '15:00', TZ);
@@ -110,7 +153,7 @@ async function main() {
   comprobar('algo que no existe da null', buscarServicio(SOLE, 'botox') === null);
 
   console.log('\n— huecos —');
-  const desde = '2026-09-07'; // lunes
+  const desde = LUNES;
   const h1 = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], desde);
   comprobar('ofrece 3 horarios', h1.length === 3, String(h1.length));
   comprobar('todos dentro de 9 a 19',
@@ -129,48 +172,48 @@ async function main() {
     h1.map(h => hhmm(h.inicio)).join(' '));
 
   // Sábado: tramo corto de 9 a 13. Igual tiene que repartir.
-  const hSab = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[1], '2026-09-12');
-  const delSabado = hSab.filter(h => fechaDe(h.inicio) === '2026-09-12');
+  const hSab = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[1], SABADO);
+  const delSabado = hSab.filter(h => fechaDe(h.inicio) === SABADO);
   comprobar('en un tramo corto también reparte',
     delSabado.length === 3 && hhmm(delSabado[0].inicio) < '10:00'
       && hhmm(delSabado[2].inicio) >= '11:00',
     delSabado.map(h => hhmm(h.inicio)).join(' '));
 
-  const h2 = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], '2026-09-13'); // domingo
+  const h2 = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], DOMINGO);
   comprobar('nunca ofrece un domingo', h2.every(h => diaSem(h.inicio) !== 'domingo'),
     h2.map(h => diaSem(h.inicio)).join(' '));
 
-  const h3 = await buscarHuecos(sbFalso({ feriados: ['2026-09-14'] }), null, SOLE, SOLE.servicios[0], '2026-09-14');
+  const h3 = await buscarHuecos(sbFalso({ feriados: [MARTES] }), null, SOLE, SOLE.servicios[0], MARTES);
   comprobar('salta un feriado que cierra',
-    h3.every(h => fechaDe(h.inicio) !== '2026-09-14'),
+    h3.every(h => fechaDe(h.inicio) !== MARTES),
     h3.map(h => fechaDe(h.inicio)).join(' '));
 
   const h4 = await buscarHuecos(
-    sbFalso({ excepciones: { '2026-09-07': { cerrado: false, desde: '15:00:00', hasta: '18:00:00' } } }),
-    null, SOLE, SOLE.servicios[1], '2026-09-07');
-  const delLunes = h4.filter(h => fechaDe(h.inicio) === '2026-09-07');
+    sbFalso({ excepciones: { [LUNES]: { cerrado: false, desde: '15:00:00', hasta: '18:00:00' } } }),
+    null, SOLE, SOLE.servicios[1], LUNES);
+  const delLunes = h4.filter(h => fechaDe(h.inicio) === LUNES);
   comprobar('respeta un horario especial del cliente',
     delLunes.length > 0 && delLunes.every(h => hhmm(h.inicio) >= '15:00' && hhmm(h.inicio) < '18:00'),
     delLunes.map(h => hhmm(h.inicio)).join(' '));
 
   console.log('\n— franja y hora pedida —');
-  const hTarde = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], '2026-09-08',
+  const hTarde = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], MARTES,
     { ...FRANJAS.tarde });
   comprobar('"de tarde" solo devuelve horarios de tarde',
     hTarde.length > 0 && hTarde.every(h => hhmm(h.inicio) >= '13:00'),
     hTarde.map(h => hhmm(h.inicio)).join(' '));
-  const hManana = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], '2026-09-08',
+  const hManana = await buscarHuecos(sbFalso(), null, SOLE, SOLE.servicios[0], MARTES,
     { ...FRANJAS['mañana'] });
   comprobar('"de mañana" solo devuelve horarios de mañana',
     hManana.length > 0 && hManana.every(h => hhmm(h.inicio) < '13:00'),
     hManana.map(h => hhmm(h.inicio)).join(' '));
 
   comprobar('las 17:00 están libres un martes normal',
-    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC('2026-09-08', '17:00', TZ))) === true);
+    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC(MARTES, '17:00', TZ))) === true);
 
   // Si la hora pedida está ocupada, lo útil es lo más cercano.
-  const ocupa17 = [{ inicio: '2026-09-08T20:00:00.000Z', fin: '2026-09-08T21:00:00.000Z', buffer_min: 10 }];
-  const cerca = await buscarHuecos(sbFalso({ turnos: ocupa17 }), null, SOLE, SOLE.servicios[0], '2026-09-08',
+  const ocupa17 = [ocupa(MARTES, '17:00', '18:00', 10)];
+  const cerca = await buscarHuecos(sbFalso({ turnos: ocupa17 }), null, SOLE, SOLE.servicios[0], MARTES,
     { cercaDeMin: 17 * 60, diasMax: 1, cantidad: 2 });
   comprobar('lo más cercano a las 17 es cercano de verdad',
     cerca.length === 2 && cerca.every(h => Math.abs(
@@ -178,42 +221,38 @@ async function main() {
     cerca.map(h => hhmm(h.inicio)).join(' '));
 
   console.log('\n— no pisar un turno existente —');
-  const ocupado = [{ inicio: '2026-09-07T12:00:00.000Z', fin: '2026-09-07T22:00:00.000Z' }];
-  const h5 = await buscarHuecos(sbFalso({ turnos: ocupado }), null, SOLE, SOLE.servicios[0], '2026-09-07');
+  const ocupado = [ocupa(LUNES, '09:00', '19:00')];
+  const h5 = await buscarHuecos(sbFalso({ turnos: ocupado }), null, SOLE, SOLE.servicios[0], LUNES);
   comprobar('no ofrece nada del día ocupado',
     h5.every(h => fechaDe(h.inicio) !== '2026-09-07'),
     h5.map(h => fechaDe(h.inicio)).join(' '));
 
-  const chocado = localAUTC('2026-09-07', '15:00', TZ);
+  const chocado = localAUTC(LUNES, '15:00', TZ);
   comprobar('estaLibre dice que no sobre un turno tomado',
     (await estaLibre(sbFalso({ turnos: ocupado }), null, SOLE, SOLE.servicios[0], chocado)) === false);
   comprobar('estaLibre dice que sí en un hueco real',
     (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], chocado)) === true);
   comprobar('estaLibre dice que no un domingo',
-    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC('2026-09-13', '11:00', TZ))) === false);
+    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC(DOMINGO, '11:00', TZ))) === false);
   comprobar('estaLibre dice que no a las 18:30 para 60 min',
-    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC('2026-09-08', '18:30', TZ))) === false);
+    (await estaLibre(sbFalso(), null, SOLE, SOLE.servicios[0], localAUTC(MARTES, '18:30', TZ))) === false);
 
   console.log('\n— el respiro entre turnos —');
   // Un turno de 13:00 a 14:00 con 10 minutos de buffer: el siguiente
   // NO puede empezar 14:00, sí puede 14:15.
-  const conBuffer = [{
-    inicio: '2026-09-09T16:00:00.000Z',  // 13:00 en Montevideo
-    fin:    '2026-09-09T17:00:00.000Z',  // 14:00
-    buffer_min: 10,
-  }];
+  const conBuffer = [ocupa(MIERCOLES, '13:00', '14:00', 10)];
   comprobar('no deja empezar justo cuando termina el anterior',
     (await estaLibre(sbFalso({ turnos: conBuffer }), null, SOLE, SOLE.servicios[2],
-      localAUTC('2026-09-09', '14:00', TZ))) === false);
+      localAUTC(MIERCOLES, '14:00', TZ))) === false);
   comprobar('sí deja después del respiro',
     (await estaLibre(sbFalso({ turnos: conBuffer }), null, SOLE, SOLE.servicios[2],
-      localAUTC('2026-09-09', '14:15', TZ))) === true);
+      localAUTC(MIERCOLES, '14:15', TZ))) === true);
   comprobar('tampoco deja terminar encima del anterior',
     (await estaLibre(sbFalso({ turnos: conBuffer }), null, SOLE, SOLE.servicios[2],
-      localAUTC('2026-09-09', '12:30', TZ))) === false);
-  const huecosBuf = await buscarHuecos(sbFalso({ turnos: conBuffer }), null, SOLE, SOLE.servicios[2], '2026-09-09');
+      localAUTC(MIERCOLES, '12:30', TZ))) === false);
+  const huecosBuf = await buscarHuecos(sbFalso({ turnos: conBuffer }), null, SOLE, SOLE.servicios[2], MIERCOLES);
   comprobar('no ofrece las 14:00 del día ocupado',
-    !huecosBuf.some(h => fechaDe(h.inicio) === '2026-09-09' && hhmm(h.inicio) === '14:00'),
+    !huecosBuf.some(h => fechaDe(h.inicio) === MIERCOLES && hhmm(h.inicio) === '14:00'),
     huecosBuf.map(h => hhmm(h.inicio)).join(' '));
 
   console.log('\n— el contexto se carga una sola vez —');
@@ -230,14 +269,14 @@ async function main() {
       return api;
     },
   } as any;
-  await buscarHuecos(sbContado, null, SOLE, SOLE.servicios[0], '2026-09-07');
+  await buscarHuecos(sbContado, null, SOLE, SOLE.servicios[0], LUNES);
   comprobar('busca en 21 días con 3 consultas, no con 63', consultas === 3, `${consultas} consultas`);
 
-  const ctx = await cargarContexto(sbFalso(), null, SOLE, '2026-09-07', 7);
+  const ctx = await cargarContexto(sbFalso(), null, SOLE, LUNES, 7);
   comprobar('el contexto trae los 8 días del rango', ctx.tramos.size === 8, String(ctx.tramos.size));
-  comprobar('el domingo queda sin tramos', (ctx.tramos.get('2026-09-13') ?? []).length === 0);
+  comprobar('el domingo queda sin tramos', (ctx.tramos.get(DOMINGO) ?? []).length === 0);
   comprobar('el sábado corta a las 13',
-    (ctx.tramos.get('2026-09-12') ?? [])[0]?.hasta === 13 * 60);
+    (ctx.tramos.get(SABADO) ?? [])[0]?.hasta === 13 * 60);
 
   console.log('\n— identificar la conversación —');
   const envFalso = { PEPPER_TELEFONO: 'pepper-de-prueba-1234567890' } as any;
@@ -278,6 +317,8 @@ async function main() {
   comprobar('prohíbe las viñetas', /viñetas/i.test(sys[0].text));
   comprobar('prohíbe agradecer y los emojis', /no uses emojis/i.test(sys[0].text));
   comprobar('ofrece agendar una sola vez', /una sola vez/i.test(sys[0].text));
+  comprobar('prohíbe el saludo de cartel', /Bienvenido a Clínica Solé/.test(sys[0].text)
+    && /es un cartel, no una persona/.test(sys[0].text));
 
   console.log(`\n${ok} bien, ${mal} mal\n`);
   process.exit(mal === 0 ? 0 : 1);
