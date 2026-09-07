@@ -14,6 +14,19 @@ ENTORNO = "prod"
 enabled = true
 
 # ---------------------------------------------------------------
+# El reloj. Es lo unico del sistema que ocurre sin que nadie
+# escriba nada: cada 15 minutos el Worker mira si hay algun turno
+# a menos de 24 h sin recordatorio mandado.
+#
+# Cada 15 y no cada hora porque el recordatorio sale a la hora del
+# turno menos 24; con cadencia horaria se corre hasta 59 minutos y
+# un recordatorio de las 9 de la mañana puede llegar a las 10.
+# 96 invocaciones por dia: irrelevante contra el limite del plan.
+# ---------------------------------------------------------------
+[triggers]
+crons = ["*/15 * * * *"]
+
+# ---------------------------------------------------------------
 # Rutas de produccion. Se descomentan cuando la delegacion de
 # uptempo.uy a Cloudflare este efectiva.
 #

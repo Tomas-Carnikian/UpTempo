@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/agenda.test.ts && tsx test/whatsapp.test.ts",
+    "test": "tsx test/agenda.test.ts && tsx test/whatsapp.test.ts && tsx test/recordatorios.test.ts",
     "tail": "wrangler tail --format pretty"
   },
   "dependencies": {

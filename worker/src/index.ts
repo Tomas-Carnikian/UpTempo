@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, MensajeEntrante } from './tipos';
-import { negocioPorSlug, negocioPorNumero, invalidarCache } from './db';
+import { db, negocioPorSlug, negocioPorNumero, invalidarCache } from './db';
 import {
   verificarWebhook, firmaValida, parsearWebhook, enviarTexto, marcarLeido, hayWhatsapp,
 } from './whatsapp';
@@ -10,6 +10,8 @@ import { paginaPanel } from './panel';
 import { paginaTurnos } from './pagina-turnos';
 import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
+import { procesarRecordatorios } from './recordatorios';
+import { crearPlantillas, estadoPlantillas } from './plantillas';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -77,6 +79,65 @@ app.get('/health', c => {
 
 /** Purga el cache de config sin desplegar. Util despues de editar precios. */
 app.post('/admin/recargar', c => { invalidarCache(); return c.json({ ok: true }); });
+
+// ── Alta de plantillas de un cliente ────────────────────────────
+/**
+ * Cerrado por HOST, igual que /panel/enlace-dev: solo desde localhost,
+ * con `wrangler dev`. Es herramienta de alta, no una ruta publica, y
+ * cerrarla por host en vez de por una variable significa que no hay
+ * forma de olvidarse de apagarla en produccion.
+ *
+ *   GET  /admin/plantillas/clinicasole  -> como estan
+ *   POST /admin/plantillas/clinicasole  -> las crea (idempotente)
+ */
+function soloLocal(c: any): boolean {
+  const host = (c.req.header('host') ?? '').split(':')[0].toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
+async function wabaDe(c: any, slug: string): Promise<string | Response> {
+  const negocio = await negocioPorSlug(c.env, slug);
+  if (!negocio) {
+    // Es ruta de alta y de localhost: decir cuales HAY vale mucho mas
+    // que un 404 seco. Un slug mal escrito es el error mas facil de
+    // cometer y el mas molesto de diagnosticar a ciegas.
+    const { data } = await db(c.env).from('clientes')
+      .select('slug, estado').order('slug').limit(50);
+    const lista = (data ?? []).map((x: any) => `${x.slug} (${x.estado})`).join(', ');
+    return c.text(`No encuentro el negocio "${slug}". Los que hay: ${lista || 'ninguno'}.`, 404);
+  }
+  const waba = negocio.cliente.wa_business_account_id;
+  if (!waba) {
+    return c.text(
+      `A "${slug}" le falta wa_business_account_id en la base. Es el ID de la cuenta de ` +
+      `WhatsApp Business (no el del numero): sin eso no hay donde crear las plantillas.`, 400);
+  }
+  return waba;
+}
+
+app.get('/admin/plantillas/:slug', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  const waba = await wabaDe(c, c.req.param('slug'));
+  if (typeof waba !== 'string') return waba;
+  try {
+    return c.json(await estadoPlantillas(c.env, waba));
+  } catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+app.post('/admin/plantillas/:slug', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  const waba = await wabaDe(c, c.req.param('slug'));
+  if (typeof waba !== 'string') return waba;
+  try {
+    return c.json(await crearPlantillas(c.env, waba));
+  } catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+/** Corre el cron a mano, para no esperar 15 minutos al probarlo. */
+app.post('/admin/recordatorios', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  return c.json(await procesarRecordatorios(c.env));
+});
 
 // ── Panel del dueño ─────────────────────────────────────────────
 app.get('/panel', c => panelDe(c, '/panel'));
@@ -300,4 +361,17 @@ async function procesarLote(env: Env, entrantes: ReturnType<typeof parsearWebhoo
   }
 }
 
-export default app;
+/**
+ * Hasta el paso 8 este archivo exportaba el `app` de Hono pelado. Ya no
+ * alcanza: un Worker que ademas corre por cron tiene que exportar las
+ * dos entradas, `fetch` para las visitas y `scheduled` para el reloj.
+ *
+ * El recordatorio va en waitUntil por la misma razon que el webhook de
+ * WhatsApp: el handler devuelve enseguida y el trabajo sigue.
+ */
+export default {
+  fetch: app.fetch,
+  async scheduled(_evento: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(procesarRecordatorios(env));
+  },
+};

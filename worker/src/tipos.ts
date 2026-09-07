@@ -29,6 +29,8 @@ export interface Cliente {
   estado: 'demo' | 'activo' | 'suspendido' | 'baja';
   timezone: string;
   wa_phone_number_id: string | null;
+  /** ID de la cuenta de WhatsApp Business. Es DONDE viven las plantillas. */
+  wa_business_account_id: string | null;
   telefono_display: string | null;
   calendar_id: string | null;
   color_primario: string;
@@ -94,6 +96,13 @@ export interface MensajeEntrante {
   nombreContacto?: string;
   /** Solo WhatsApp. Es la llave de idempotencia. */
   waMessageId?: string;
+  /**
+   * Solo WhatsApp. Si la persona toco un boton de una plantilla, esto
+   * trae el payload que le pusimos al mandarla (CONFIRMO, CAMBIO).
+   * Es lo unico que se puede leer sin ambiguedad: el texto visible del
+   * boton depende del idioma y de como Meta lo aprobo.
+   */
+  payloadBoton?: string;
 }
 
 export interface Respuesta {

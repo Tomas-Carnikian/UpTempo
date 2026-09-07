@@ -53,23 +53,30 @@ export const HERRAMIENTAS = [
   },
   {
     name: 'reprogramar_turno',
-    description: 'Mueve el proximo turno de esa persona a otra fecha y hora.',
+    description:
+      'Mueve el proximo turno de esa persona a otra fecha y hora. ' +
+      'Por WhatsApp NO hace falta el telefono: uso el numero desde el que escribe. ' +
+      'Pedilo solo si la persona dice que el turno esta a nombre de otra.',
     input_schema: {
       type: 'object',
       properties: {
-        telefono: { type: 'string' },
+        telefono: { type: 'string', description: 'Solo si el turno esta a nombre de otro numero.' },
         nueva_fecha_hora: { type: 'string', description: 'YYYY-MM-DD HH:MM, hora local del negocio.' },
       },
-      required: ['telefono', 'nueva_fecha_hora'],
+      required: ['nueva_fecha_hora'],
     },
   },
   {
     name: 'cancelar_turno',
-    description: 'Cancela el proximo turno de esa persona.',
+    description:
+      'Cancela el proximo turno de esa persona. Por WhatsApp NO hace falta el telefono: ' +
+      'uso el numero desde el que escribe.',
     input_schema: {
       type: 'object',
-      properties: { telefono: { type: 'string' } },
-      required: ['telefono'],
+      properties: {
+        telefono: { type: 'string', description: 'Solo si el turno esta a nombre de otro numero.' },
+      },
+      required: [],
     },
   },
   {
@@ -264,15 +271,30 @@ export async function ejecutar(
     // ---------------------------------------------------------------
     case 'reprogramar_turno':
     case 'cancelar_turno': {
-      const telefono = String(args.telefono ?? '').trim();
-      const hash = await hashTelefono(env, telefono);
-      const { data: turno } = await sb.from('turnos')
-        .select('id, servicio_nombre, inicio, servicio_id, calendar_event_id')
-        .eq('cliente_id', negocio.cliente.id)
-        .eq('telefono_hash', hash)
-        .in('estado', ['agendado', 'confirmado'])
-        .gte('inicio', new Date().toISOString())
-        .order('inicio').limit(1).maybeSingle();
+      // Por WhatsApp el telefono ya lo sabemos: es el numero desde el
+      // que escribe. Preguntarselo a alguien que nos esta escribiendo
+      // por WhatsApp es la clase de detalle que delata que del otro
+      // lado hay un formulario y no una persona. Igual se prueba
+      // primero el que haya dicho el modelo: el turno puede estar a
+      // nombre de otra (una madre que reserva para su hija).
+      const candidatos = [...new Set(
+        [String(args.telefono ?? '').trim(), (conversacion.telefono ?? '').trim()].filter(Boolean),
+      )];
+      if (!candidatos.length) {
+        return { salida: 'No tengo el telefono. Pediselo antes de seguir.' };
+      }
+
+      let turno: any = null;
+      for (const tel of candidatos) {
+        const { data } = await sb.from('turnos')
+          .select('id, servicio_nombre, inicio, servicio_id, calendar_event_id')
+          .eq('cliente_id', negocio.cliente.id)
+          .eq('telefono_hash', await hashTelefono(env, tel))
+          .in('estado', ['agendado', 'confirmado'])
+          .gte('inicio', new Date().toISOString())
+          .order('inicio').limit(1).maybeSingle();
+        if (data) { turno = data; break; }
+      }
 
       if (!turno) return { salida: 'No encuentro ningun turno futuro con ese telefono. Deriva a una persona.' };
 

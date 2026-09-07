@@ -3,10 +3,12 @@ import type {
   Env, Negocio, Conversacion, MensajeEntrante, Respuesta,
   MensajeApi, RespuestaApi, Bloque, BloqueToolResult,
 } from './tipos';
-import { db, hashIdentificador } from './db';
+import { db, hashIdentificador, hashTelefono } from './db';
 import { construirSystem } from './prompt';
 import { HERRAMIENTAS, ejecutar } from './herramientas';
 import { vinoDeLaPagina } from './whatsapp';
+import { BTN_CONFIRMO, avisarDerivacion } from './plantillas';
+import { formatearHueco } from './agenda';
 
 const MAX_VUELTAS = 5;       // tope del loop de herramientas
 const HISTORIAL = 20;        // mensajes de contexto que se recuperan
@@ -62,6 +64,15 @@ export async function responder(
   }
 
   // ── Reglas duras que NO delegamos en el modelo ────────────────
+
+  // Boton "Confirmar" del recordatorio. Un tilde no es una
+  // conversacion: se resuelve sin llamar al modelo, contesta al
+  // instante y no cuesta nada. Es la interaccion mas frecuente que va
+  // a tener el sistema y seria absurdo pagarla.
+  if (entrada.payloadBoton === BTN_CONFIRMO) {
+    return confirmarTurno(sb, env, negocio, conversacion, t0);
+  }
+
   // Una foto de una lesion es el caso mas delicado del rubro. Que el
   // modelo "sepa" que no debe mirarla no alcanza: aca ni siquiera se
   // le manda. Es codigo, no una instruccion que se pueda esquivar.
@@ -115,7 +126,13 @@ export async function responder(
   const latencia = Date.now() - t0;
   await registrarEvento(sb, negocio, conversacion, 'consulta', latencia, origenEvento,
                         dePagina?.servicio);
-  if (derivo) await registrarEvento(sb, negocio, conversacion, 'derivacion', null, origenEvento);
+  if (derivo) {
+    await registrarEvento(sb, negocio, conversacion, 'derivacion', null, origenEvento);
+    // Sin este aviso la derivacion es un agujero: le decimos a la
+    // persona que en un rato le escriben, y no le escribe nadie porque
+    // el dueño nunca se entera.
+    await avisarDerivacion(env, negocio, conversacion, await motivoDerivacion(sb, conversacion.id));
+  }
 
   return { texto: textoFinal, conversacionId: conversacion.id, derivada: derivo, latenciaMs: latencia };
 }
@@ -231,7 +248,7 @@ async function marcarDerivada(
 }
 
 async function derivarPorCodigo(
-  sb: SupabaseClient, _env: Env, negocio: Negocio, conversacion: Conversacion,
+  sb: SupabaseClient, env: Env, negocio: Negocio, conversacion: Conversacion,
   texto: string, motivo: string, t0: number,
 ): Promise<Respuesta> {
   await marcarDerivada(sb, negocio, conversacion, motivo);
@@ -239,7 +256,55 @@ async function derivarPorCodigo(
   const latencia = Date.now() - t0;
   await registrarEvento(sb, negocio, conversacion, 'consulta', latencia, conversacion.canal);
   await registrarEvento(sb, negocio, conversacion, 'derivacion', null, conversacion.canal, undefined, { motivo });
+  await avisarDerivacion(env, negocio, conversacion, motivo);
   return { texto, conversacionId: conversacion.id, derivada: true, latenciaMs: latencia };
+}
+
+/** El motivo que dejo escrito la herramienta al derivar. */
+async function motivoDerivacion(sb: SupabaseClient, conversacionId: string): Promise<string> {
+  const { data } = await sb.from('conversaciones')
+    .select('motivo_derivacion').eq('id', conversacionId).maybeSingle();
+  return (data?.motivo_derivacion as string | null) ?? 'el asistente no pudo resolverlo';
+}
+
+/**
+ * "Confirmar" del recordatorio, resuelto sin modelo.
+ *
+ * Busca el proximo turno de ese telefono y lo pasa a confirmado. Si no
+ * hay ninguno (lo cancelaron, ya paso), contesta algo neutro en vez de
+ * un error: la persona toco un boton, no hizo nada mal.
+ */
+async function confirmarTurno(
+  sb: SupabaseClient, env: Env, negocio: Negocio, conversacion: Conversacion, t0: number,
+): Promise<Respuesta> {
+  const tel = conversacion.telefono ?? '';
+  let texto = 'Listo, gracias por avisar.';
+
+  if (tel) {
+    const hash = await hashTelefono(env, tel);
+    const { data: turno } = await sb.from('turnos')
+      .select('id, inicio')
+      .eq('cliente_id', negocio.cliente.id)
+      .eq('telefono_hash', hash)
+      .eq('estado', 'agendado')
+      .gte('inicio', new Date().toISOString())
+      .order('inicio').limit(1).maybeSingle();
+
+    if (turno) {
+      await sb.from('turnos').update({ estado: 'confirmado' }).eq('id', turno.id);
+      texto = `Listo, quedó confirmado. Te esperamos ` +
+              `${formatearHueco(new Date(turno.inicio as string), negocio.cliente.timezone)}.`;
+    }
+  }
+
+  await guardarRespuesta(sb, conversacion.id, texto);
+  const latencia = Date.now() - t0;
+  // Se registra como respuesta al recordatorio, NO como consulta: un
+  // tilde no es alguien preguntando algo, y meterlo en "consultas
+  // atendidas" infla una metrica que el dueño usa para decidir.
+  await registrarEvento(sb, negocio, conversacion, 'recordatorio', latencia,
+                        'whatsapp', undefined, { respuesta: 'confirmado' });
+  return { texto, conversacionId: conversacion.id, derivada: false, latenciaMs: latencia };
 }
 
 /**
@@ -251,7 +316,7 @@ async function derivarPorCodigo(
  */
 async function registrarEvento(
   sb: SupabaseClient, negocio: Negocio, conversacion: Conversacion,
-  tipo: 'consulta' | 'turno' | 'derivacion' | 'error',
+  tipo: 'consulta' | 'turno' | 'derivacion' | 'recordatorio' | 'error',
   latenciaMs: number | null, origen: string,
   servicio?: string, metadata: Record<string, unknown> = {},
 ) {
