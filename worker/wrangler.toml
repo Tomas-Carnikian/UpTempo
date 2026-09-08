@@ -5,6 +5,11 @@ compatibility_flags = ["nodejs_compat"]
 
 # Un solo Worker para los 30 clientes. Nunca uno por cliente.
 # Agregar un cliente es insertar filas, no desplegar nada.
+#
+# OJO: este archivo es el de PRODUCCION (`npx wrangler deploy`).
+# `npm run dev` usa wrangler.dev.toml, que es igual pero sin las
+# [[routes]] — con las rutas puestas, el dev local recibe
+# Host: uptempo.uy y las rutas de admin se cierran solas.
 
 [vars]
 # En local gana el ENTORNO de .dev.vars. Este es el del Worker desplegado.

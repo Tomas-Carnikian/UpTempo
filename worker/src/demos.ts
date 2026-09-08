@@ -247,3 +247,102 @@ export async function borrarDemo(env: Env, slug: string): Promise<string> {
   invalidarCache(`slug:${slug}`);
   return `Borrada la demo "${slug}" (${data.nombre}).`;
 }
+
+// ── Purga (paso 9.5) ────────────────────────────────────────────
+
+/**
+ * Una demo que no convirtio se borra sola a los 30 dias.
+ *
+ * No es prolijidad: es lo que mantiene sano el trato. Publicamos la
+ * pagina de un negocio que no nos la pidio; si no le intereso, lo
+ * minimo es que deje de existir sin que nadie tenga que acordarse.
+ */
+export const DIAS_PARA_PURGAR = 30;
+
+/**
+ * Tope por corrida. Si una consulta sale mal o alguien toca el
+ * criterio sin querer, el daño maximo son 20 demos y no la base
+ * entera. Lo que sobra se borra en la corrida siguiente.
+ */
+const MAX_POR_CORRIDA = 20;
+
+export interface CandidataPurga {
+  slug: string;
+  estado: string;
+  creado_en: string;
+  eventos: number;
+}
+
+/**
+ * Decide cuales se borran. Funcion pura a proposito: es la parte que
+ * se puede probar sin base, y es la que decide un DELETE.
+ *
+ * Se borra una demo solo si se cumplen las tres:
+ *   - estado 'demo' — nunca se toca un cliente que paga;
+ *   - cumplio los 30 dias;
+ *   - CERO eventos. Un solo evento significa que alguien la abrio, y
+ *     una demo que el dueño abrio es una conversacion empezada.
+ */
+export function demosAPurgar(
+  filas: CandidataPurga[], ahora = new Date(), dias = DIAS_PARA_PURGAR,
+): string[] {
+  const corte = ahora.getTime() - dias * 86_400_000;
+  return filas
+    .filter(f => f.estado === 'demo')
+    .filter(f => f.eventos === 0)
+    .filter(f => {
+      const t = new Date(f.creado_en).getTime();
+      return Number.isFinite(t) && t < corte;
+    })
+    .map(f => f.slug)
+    .slice(0, MAX_POR_CORRIDA);
+}
+
+export interface ResultadoPurga {
+  revisadas: number;
+  borradas: string[];
+  /** Cumplieron los 30 dias pero se salvaron porque alguien las uso. */
+  conservadas_por_uso: string[];
+}
+
+export async function purgarDemos(env: Env, ahora = new Date()): Promise<ResultadoPurga> {
+  const sb = db(env);
+
+  const { data, error } = await sb.from('clientes')
+    .select('id, slug, estado, creado_en').eq('estado', 'demo');
+  if (error) throw new Error(`No pude listar las demos: ${error.message}`);
+
+  const filas: Array<CandidataPurga & { id: string }> = [];
+  for (const d of (data ?? []) as any[]) {
+    const { count } = await sb.from('eventos')
+      .select('id', { count: 'exact', head: true }).eq('cliente_id', d.id);
+    filas.push({ id: d.id, slug: d.slug, estado: d.estado, creado_en: d.creado_en, eventos: count ?? 0 });
+  }
+
+  const aBorrar = demosAPurgar(filas, ahora);
+  const borradas: string[] = [];
+
+  for (const slug of aBorrar) {
+    const fila = filas.find(f => f.slug === slug);
+    if (!fila) continue;
+    // El estado se vuelve a comprobar EN el delete. Entre que se leyo
+    // la lista y que se borra pudo convertirse en cliente: improbable,
+    // y la linea cuesta cero.
+    const { error: err } = await sb.from('clientes')
+      .delete().eq('id', fila.id).eq('estado', 'demo');
+    if (err) { console.error('[purga]', slug, err.message); continue; }
+    invalidarCache(`slug:${slug}`);
+    borradas.push(slug);
+  }
+
+  const corte = ahora.getTime() - DIAS_PARA_PURGAR * 86_400_000;
+  const conservadas = filas
+    .filter(f => f.eventos > 0 && new Date(f.creado_en).getTime() < corte)
+    .map(f => f.slug);
+
+  if (borradas.length || conservadas.length) {
+    console.log('[purga]', 'borradas', borradas.length, borradas.join(', '),
+                '| conservadas por uso', conservadas.length);
+  }
+  return { revisadas: filas.length, borradas, conservadas_por_uso: conservadas };
+}

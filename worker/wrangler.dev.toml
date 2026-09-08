@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------
+# Config de DESARROLLO. `npm run dev` usa esta, no wrangler.toml.
+#
+# Existe por una sola razon: las [[routes]] de produccion le cambian
+# el Host a `wrangler dev`. Con las rutas puestas, el dev local
+# recibe Host: uptempo.uy en vez de localhost, y como las rutas de
+# admin estan cerradas POR HOST, quedan cerradas tambien en tu
+# maquina: /admin/demos, /admin/extraer y /panel/enlace-dev empiezan
+# a devolver 404 sin ninguna explicacion.
+#
+# La alternativa era aflojar el chequeo de host, y eso no: es lo que
+# garantiza que las rutas de admin no existan en produccion. Antes se
+# rompe el dev que la puerta.
+#
+# Si tocas wrangler.toml, mira si hay que tocar este tambien. Lo unico
+# que NO va aca son las [[routes]] y el cron.
+# ---------------------------------------------------------------
+name = "uptempo"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENTORNO = "dev"
+
+[observability]
+enabled = true

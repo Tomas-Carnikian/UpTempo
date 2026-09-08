@@ -9,7 +9,7 @@
  * La regla de "nunca tocar un cliente que no sea demo" no se prueba acá
  * porque necesita la base; se verifica a mano contra clinicasole.
  */
-import { slugValido } from '../src/demos';
+import { slugValido, demosAPurgar, type CandidataPurga } from '../src/demos';
 import { slugificar } from '../src/extraccion';
 import { numeroWa } from '../src/pagina-turnos';
 import type { Negocio } from '../src/tipos';
@@ -47,6 +47,40 @@ function main() {
     CHECK.test(slugValido('beautyplanet2')), slugValido('beautyplanet2'));
   comprobar('un nombre largo con sufijo tampoco se pasa',
     slugValido(slugificar('Centro de Estética y Depilación Definitiva Punta Carretas') + '2').length <= 30);
+
+  console.log('\n— la purga a los 30 días —');
+  const hoy = new Date('2026-10-15T03:00:00Z');
+  const hace = (dias: number) => new Date(hoy.getTime() - dias * 86400000).toISOString();
+  const filas: CandidataPurga[] = [
+    { slug: 'vieja-sin-uso',  estado: 'demo',       creado_en: hace(40), eventos: 0 },
+    { slug: 'vieja-usada',    estado: 'demo',       creado_en: hace(40), eventos: 3 },
+    { slug: 'nueva-sin-uso',  estado: 'demo',       creado_en: hace(5),  eventos: 0 },
+    { slug: 'justo-29',       estado: 'demo',       creado_en: hace(29), eventos: 0 },
+    { slug: 'justo-31',       estado: 'demo',       creado_en: hace(31), eventos: 0 },
+    { slug: 'cliente-activo', estado: 'activo',     creado_en: hace(90), eventos: 0 },
+    { slug: 'suspendido',     estado: 'suspendido', creado_en: hace(90), eventos: 0 },
+    { slug: 'fecha-basura',   estado: 'demo',       creado_en: 'no es una fecha', eventos: 0 },
+  ];
+  const purgar = demosAPurgar(filas, hoy);
+
+  comprobar('borra la demo vieja que nadie abrió', purgar.includes('vieja-sin-uso'));
+  comprobar('NO borra una demo que alguien usó', !purgar.includes('vieja-usada'));
+  comprobar('NO borra una demo nueva', !purgar.includes('nueva-sin-uso'));
+  comprobar('a los 29 días todavía no', !purgar.includes('justo-29'));
+  comprobar('a los 31 días sí', purgar.includes('justo-31'));
+  // Lo más importante de todo el archivo: esto decide un DELETE.
+  comprobar('NUNCA borra un cliente activo', !purgar.includes('cliente-activo'));
+  comprobar('NUNCA borra un suspendido', !purgar.includes('suspendido'));
+  comprobar('una fecha ilegible no se borra (ante la duda, se queda)',
+    !purgar.includes('fecha-basura'));
+  comprobar('borra exactamente dos', purgar.length === 2, JSON.stringify(purgar));
+
+  // El tope por corrida: si algo sale mal, el daño está acotado.
+  const muchas: CandidataPurga[] = Array.from({ length: 50 }, (_, i) =>
+    ({ slug: 'd' + i, estado: 'demo', creado_en: hace(60), eventos: 0 }));
+  comprobar('nunca borra más de 20 en una corrida', demosAPurgar(muchas, hoy).length === 20,
+    String(demosAPurgar(muchas, hoy).length));
+  comprobar('una lista vacía no rompe', demosAPurgar([], hoy).length === 0);
 
   console.log('\n— el número de WhatsApp de la página —');
   const conTel = (t: string | null) => ({ cliente: { telefono_display: t } } as unknown as Negocio);

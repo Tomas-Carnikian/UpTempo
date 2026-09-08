@@ -13,7 +13,7 @@ import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
 import { extraerFicha } from './extraccion';
-import { insertarFicha, listarDemos, borrarDemo } from './demos';
+import { insertarFicha, listarDemos, borrarDemo, purgarDemos } from './demos';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -94,7 +94,13 @@ app.post('/admin/recargar', c => { invalidarCache(); return c.json({ ok: true })
  */
 function soloLocal(c: any): boolean {
   const host = (c.req.header('host') ?? '').split(':')[0].toLowerCase();
-  return host === 'localhost' || host === '127.0.0.1';
+  const ok = host === 'localhost' || host === '127.0.0.1';
+  // Cuando rechaza, dice QUE host vio. Sin esto, una ruta de admin que
+  // deja de funcionar da un 404 mudo, identico al de una ruta que no
+  // existe, y no hay forma de distinguir "la puerta te rechazo" de
+  // "escribiste mal la URL".
+  if (!ok) console.log('[admin] rechazado, host =', JSON.stringify(host), c.req.path);
+  return ok;
 }
 
 async function wabaDe(c: any, slug: string): Promise<string | Response> {
@@ -198,6 +204,20 @@ app.post('/admin/demos', async c => {
 app.get('/admin/demos', async c => {
   if (!soloLocal(c)) return c.notFound();
   try { return c.json(await listarDemos(c.env)); }
+  catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+/**
+ * La purga a mano. Sin ?ahora= no borra nada que no corresponda; con
+ * ?ahora=2026-12-01 se puede ver que pasaria en el futuro sin esperar
+ * 30 dias. Es la unica forma comoda de probar el 9.5.
+ */
+app.post('/admin/demos/purga', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  const q = c.req.query('ahora');
+  const ahora = q ? new Date(q) : new Date();
+  if (Number.isNaN(ahora.getTime())) return c.text('?ahora= tiene que ser una fecha válida.', 400);
+  try { return c.json(await purgarDemos(c.env, ahora)); }
   catch (e: any) { return c.text(e?.message ?? 'error', 500); }
 });
 
@@ -452,5 +472,15 @@ export default {
   fetch: app.fetch,
   async scheduled(_evento: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(procesarRecordatorios(env));
+
+    // La purga de demos va en el mismo reloj pero UNA VEZ POR DIA: el
+    // cron corre cada 15 minutos por el recordatorio, y recorrer todas
+    // las demos 96 veces al dia para borrar algo que cambia una vez
+    // seria pagar 96 veces lo mismo. A las 06:00 UTC, o sea las 3 de
+    // la mañana en Montevideo: no hay nadie usando nada.
+    const ahora = new Date();
+    if (ahora.getUTCHours() === 6 && ahora.getUTCMinutes() < 15) {
+      ctx.waitUntil(purgarDemos(env).catch(e => console.error('[purga]', e?.message)));
+    }
   },
 };
