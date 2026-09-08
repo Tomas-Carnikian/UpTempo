@@ -103,11 +103,43 @@ export async function hashValor(env: Env, valor: string): Promise<string> {
 }
 
 /**
- * Hash de un TELEFONO. Se queda solo con los digitos para que
- * "+598 99 123 456" y "59899123456" sean la misma persona.
+ * Un telefono uruguayo escrito SIEMPRE de la misma forma: 598 + numero
+ * nacional, sin ceros de tronco, sin espacios y sin +.
+ *
+ * Existe porque la misma persona aparece de dos formas distintas en el
+ * mismo turno: WhatsApp la identifica como "59899123456" (el remitente
+ * real) y ella escribe "099 123 456" cuando el asistente le pide el
+ * telefono. Quedandonos solo con los digitos, esos dos valores dan
+ * hashes distintos, y entonces:
+ *   - el recordatorio sale al numero tipeado, que Meta rechaza porque
+ *     no tiene codigo de pais;
+ *   - cancelar y reprogramar no encuentran el turno de quien escribe.
+ *
+ * Lo que no reconoce lo deja pasar tal cual: un numero de otro pais
+ * tiene que llegar entero a Meta, no mutilado por una regla uruguaya.
+ *
+ * OJO: cambiar esta funcion cambia TODOS los hashes. Se puede hacer
+ * hoy porque los unicos datos son de prueba. Con clientes reales
+ * adentro, cambiarla parte el historial al medio, igual que cambiar
+ * el pepper.
+ */
+export function normalizarTelefono(valor: string): string {
+  let d = (valor ?? '').replace(/[^0-9]/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);        // 00598… → 598…
+  if (d.startsWith('598')) return d;             // ya viene bien
+  if (d.length === 9 && d.startsWith('0')) return '598' + d.slice(1);  // 09X XXX XXX
+  if (d.length === 8) return '598' + d;          // 9X XXX XXX, o un fijo
+  return d;                                      // otro pais: intacto
+}
+
+/**
+ * Hash de un TELEFONO, sobre la forma normalizada, para que
+ * "+598 99 123 456", "099 123 456" y "59899123456" sean una sola
+ * persona y no tres.
  */
 export async function hashTelefono(env: Env, telefono: string): Promise<string> {
-  return hashValor(env, telefono.replace(/[^0-9]/g, ''));
+  return hashValor(env, normalizarTelefono(telefono));
 }
 
 /**

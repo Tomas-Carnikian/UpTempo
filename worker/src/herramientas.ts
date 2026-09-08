@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Env, Negocio, Conversacion } from './tipos';
-import { hashTelefono } from './db';
+import { hashTelefono, normalizarTelefono } from './db';
 import { buscarServicio, buscarHuecos, estaLibre, formatearHueco, localAUTC, FRANJAS } from './agenda';
 import { fechaISOLocal } from './prompt';
 import { hayGoogle, crearEvento, moverEvento, borrarEvento } from './google';
@@ -201,6 +201,32 @@ export async function ejecutar(
       const inicio = parsearFechaHora(String(args.fecha_hora ?? ''), tz);
       if (!inicio) return { salida: 'La fecha y hora tienen que venir como YYYY-MM-DD HH:MM.' };
 
+      // ── Idempotencia del agendado ───────────────────────────────
+      // El modelo puede volver a llamar a esta herramienta en el mismo
+      // hilo: pasa cuando la persona escribe "gracias" o pregunta algo
+      // despues de que el turno ya quedo confirmado.
+      //
+      // Sin esta guarda, el rechequeo de mas abajo encuentra el
+      // horario ocupado POR EL TURNO QUE ACABAMOS DE CREAR, y el
+      // asistente le dice a la clienta que su propio turno "recien se
+      // ocupo" y le ofrece otros tres. Ademas, si el rechequeo pasara,
+      // quedarian dos turnos iguales.
+      const { data: yaHay } = await sb.from('turnos')
+        .select('id, servicio_nombre, inicio')
+        .eq('cliente_id', negocio.cliente.id)
+        .eq('conversacion_id', conversacion.id)
+        .in('estado', ['agendado', 'confirmado'])
+        .eq('inicio', inicio.toISOString())
+        .maybeSingle();
+
+      if (yaHay) {
+        return { salida:
+          `Ese turno YA está agendado en esta misma conversación: ` +
+          `${yaHay.servicio_nombre}, ${formatearHueco(new Date(yaHay.inicio as string), tz)}. ` +
+          `NO lo agendes de nuevo ni consultes disponibilidad. Contestá lo que te preguntaron ` +
+          `y, si no preguntaron nada, decí algo corto y cortá.` };
+      }
+
       // Se rechequea ACA, no solo al ofrecer: entre que se ofrecio el
       // horario y que la persona lo confirmo pudieron pasar minutos, y
       // en ese rato otra clienta pudo tomarlo o el dueño pudo anotar
@@ -214,7 +240,10 @@ export async function ejecutar(
         return { salida: 'No pude verificar la agenda. No confirmes el turno: usa derivar_a_humano.' };
       }
 
-      const telefono = String(args.telefono ?? '').trim();
+      // Se guarda normalizado, no como lo tipeo la persona. Es el
+      // numero al que despues hay que mandarle el recordatorio, y Meta
+      // rechaza cualquier cosa sin codigo de pais.
+      const telefono = normalizarTelefono(String(args.telefono ?? ''));
       const nombrePersona = String(args.nombre ?? '').trim();
       const fin = new Date(inicio.getTime() + servicio.duracion_min * 60_000);
       const calendarId = conCalendario(ctx);
