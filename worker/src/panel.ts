@@ -61,6 +61,8 @@ export function paginaPanel(
   header.barra { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
                  margin-bottom: 6px; }
   header.barra h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  #cambiar-negocio { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px;
+                     border: 1px solid #d6cec6; background: #fff; }
   .periodo { color: var(--tinta-3); font-size: 14px; }
   .salir { margin-left: auto; background: none; border: 0; color: var(--tinta-3);
            font-size: 14px; cursor: pointer; padding: 4px; text-decoration: underline; }
@@ -125,6 +127,7 @@ export function paginaPanel(
 <div id="pantalla-panel" class="envoltorio" hidden>
   <header class="barra">
     <h1 id="negocio">…</h1>
+    <select id="cambiar-negocio" hidden></select>
     <span class="periodo" id="periodo"></span>
     <button class="salir" id="salir">salir</button>
   </header>
@@ -272,16 +275,56 @@ export function paginaPanel(
   }
 
   async function cargar() {
-    var cliente = await api('clientes?select=nombre,timezone&limit=1');
-    if (!cliente) { mostrarLogin(); return; }
-    if (!cliente.length) {
+    // OJO: un usuario puede tener MAS DE UN negocio. Pasa con Tomas,
+    // que queda enganchado a cada demo, y con una cadena que tiene una
+    // fila por sucursal. La primera version pedia un solo cliente y no
+    // filtraba nada mas: el panel mostraba el nombre de un negocio con
+    // los eventos de TODOS mezclados. RLS no lo evita porque los dos
+    // son suyos. Por eso ahora se elige uno y se filtra por cliente_id
+    // en cada consulta.
+    //
+    // Y OJO CON LOS BACKTICKS: este archivo entero es un template
+    // literal. Uno solo, hasta en un comentario, corta el literal y el
+    // build falla con un "Expected ; but found ..." que apunta a
+    // cualquier lado menos al backtick.
+    var negocios = await api('clientes?select=id,nombre,timezone,estado&order=nombre');
+    if (!negocios) { mostrarLogin(); return; }
+    if (!negocios.length) {
       mostrarLogin('Ese correo no tiene ningún negocio asociado. Escribinos y lo damos de alta.');
       return;
     }
-    var tz = cliente[0].timezone || 'America/Montevideo';
-    $('negocio').textContent = cliente[0].nombre;
 
-    var m = await api('panel_metricas_mes?select=*&limit=1');
+    var pedido = new URLSearchParams(location.search).get('n');
+    var guardado = null;
+    try { guardado = localStorage.getItem('uptempo_panel_negocio'); } catch (e) {}
+    var cliente = negocios.filter(function (x) { return x.id === pedido; })[0]
+               || negocios.filter(function (x) { return x.id === guardado; })[0]
+               || negocios[0];
+    try { localStorage.setItem('uptempo_panel_negocio', cliente.id); } catch (e) {}
+
+    var tz = cliente.timezone || 'America/Montevideo';
+    $('negocio').textContent = cliente.nombre +
+      (cliente.estado === 'demo' ? ' (demo)' : '');
+
+    var selector = $('cambiar-negocio');
+    if (negocios.length > 1) {
+      selector.innerHTML = negocios.map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (x.id === cliente.id ? ' selected' : '') +
+               '>' + esc(x.nombre) + (x.estado === 'demo' ? ' (demo)' : '') + '</option>';
+      }).join('');
+      selector.hidden = false;
+      selector.onchange = function () {
+        try { localStorage.setItem('uptempo_panel_negocio', selector.value); } catch (e) {}
+        cargar();
+      };
+    } else {
+      selector.hidden = true;
+    }
+
+    // Todo lo que sigue va filtrado por ESTE negocio.
+    var soloEste = '&cliente_id=eq.' + encodeURIComponent(cliente.id);
+
+    var m = await api('panel_metricas_mes?select=*' + soloEste + '&limit=1');
     var d = (m && m[0]) || {};
     $('periodo').textContent = d.mes_desde ? mes(d.mes_desde, tz) : '';
     $('m-fuera').textContent = d.consultas_fuera_horario || 0;
@@ -290,10 +333,12 @@ export function paginaPanel(
     $('m-tiempo').textContent = tiempo(d.latencia_media_ms);
     $('m-derivadas').textContent = d.derivaciones || 0;
 
-    var turnos = await api('turnos?select=inicio,servicio_nombre,estado,origen&order=inicio.desc&limit=8');
+    var turnos = await api('turnos?select=inicio,servicio_nombre,estado,origen' + soloEste +
+      '&order=inicio.desc&limit=8');
     $('tabla-turnos').innerHTML = tablaTurnos(turnos, tz);
 
-    var act = await api('eventos?select=ocurrido_en,tipo,servicio,fuera_de_horario,origen&order=ocurrido_en.desc&limit=12');
+    var act = await api('eventos?select=ocurrido_en,tipo,servicio,fuera_de_horario,origen' + soloEste +
+      '&order=ocurrido_en.desc&limit=12');
     $('tabla-actividad').innerHTML = tablaActividad(act, tz);
 
     $('pantalla-login').hidden = true;

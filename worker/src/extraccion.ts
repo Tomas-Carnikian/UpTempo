@@ -294,7 +294,10 @@ export function slugificar(nombre: string): string {
   let s = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!s) s = 'negocio';
-  s = s.slice(0, 40);
+  // El check de la base exige entre 3 y 30 caracteres. Pasarse no da un
+  // error legible: revienta el insert en la mitad de un lote de 20.
+  s = s.slice(0, 30);
+  if (s.length < 3) s = (s + 'uy0').slice(0, 3);
   if (RESERVADOS.has(s)) s = s + 'uy';
   return s;
 }

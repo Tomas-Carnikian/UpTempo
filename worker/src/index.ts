@@ -13,6 +13,7 @@ import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
 import { extraerFicha } from './extraccion';
+import { insertarFicha, listarDemos, borrarDemo } from './demos';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -160,6 +161,52 @@ app.post('/admin/extraer', async c => {
   }
 });
 
+// ── Generador de demos: las demos (paso 9.2) ────────────────────
+/**
+ * De una URL a una demo en linea, en una sola llamada.
+ *
+ *   POST   /admin/demos  {"url":"https://…"}   la genera (o la actualiza)
+ *   GET    /admin/demos                        las lista
+ *   DELETE /admin/demos/<slug>                 borra una
+ *
+ * Idempotente por slug: correrlo dos veces sobre la misma clinica
+ * actualiza, no duplica. Y nunca toca un cliente que no sea 'demo'.
+ */
+app.post('/admin/demos', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  const body = await c.req.json().catch(() => ({} as any));
+  const url = String(body.url ?? '').trim();
+  const extra = String(body.extra ?? '').trim();
+  if (!url && !extra) return c.text('Mandá {"url":"https://…"} o al menos {"extra":"…"}.', 400);
+  if (url && !/^https?:\/\//i.test(url)) return c.text('La url tiene que empezar con http:// o https://', 400);
+
+  try {
+    const ficha = await extraerFicha(c.env, { url: url || undefined, extra: extra || undefined });
+    const r = await insertarFicha(c.env, ficha);
+    return c.json({
+      ...r,
+      pagina: `/p/${r.slug}`,
+      chat: `/c/${r.slug}`,
+      precios_descartados: ficha.origen.precios_descartados,
+      paginas_leidas: ficha.origen.paginas,
+    });
+  } catch (e: any) {
+    return c.text(e?.message ?? 'error', 502);
+  }
+});
+
+app.get('/admin/demos', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  try { return c.json(await listarDemos(c.env)); }
+  catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+app.delete('/admin/demos/:slug', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  try { return c.text(await borrarDemo(c.env, c.req.param('slug'))); }
+  catch (e: any) { return c.text(e?.message ?? 'error', 400); }
+});
+
 /** Corre el cron a mano, para no esperar 15 minutos al probarlo. */
 app.post('/admin/recordatorios', async c => {
   if (!soloLocal(c)) return c.notFound();
@@ -280,7 +327,10 @@ app.get('/c/:slug', async c => chatDe(c, c.req.param('slug'), `/c/${c.req.param(
 async function turnosDe(c: any, slug: string) {
   const negocio = await negocioPorSlug(c.env, slug);
   if (!negocio) return c.text(`No encuentro el negocio "${slug}".`, 404);
-  return c.html(paginaTurnos(negocio), 200, {
+  // En el subdominio del cliente el chat vive en /chat; en local, en
+  // /c/<slug>. La pagina no puede adivinarlo: se lo decimos.
+  const rutaChat = slugDeHost(c.req.header('host') ?? '') ? '/chat' : `/c/${slug}`;
+  return c.html(paginaTurnos(negocio, rutaChat), 200, {
     // La página cambia cuando cambian los precios, no en cada visita.
     'cache-control': 'public, max-age=120, stale-while-revalidate=600',
   });
@@ -289,7 +339,9 @@ async function turnosDe(c: any, slug: string) {
 async function chatDe(c: any, slug: string, rutaApi: string) {
   const negocio = await negocioPorSlug(c.env, slug);
   if (!negocio) return c.text(`No encuentro el negocio "${slug}".`, 404);
-  return c.html(paginaChat(negocio, rutaApi));
+  // ?m= lo ponen los botones de la pagina de turnos de una demo.
+  const precargado = (c.req.query('m') ?? '').slice(0, 300);
+  return c.html(paginaChat(negocio, rutaApi, precargado));
 }
 
 // ── API del chat ────────────────────────────────────────────────

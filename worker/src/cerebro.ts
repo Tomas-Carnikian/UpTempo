@@ -20,6 +20,27 @@ const TEXTO_FOTO =
 const TEXTO_AUDIO =
   '¿Me lo podés escribir? Por acá no puedo escuchar los audios.';
 
+
+/**
+ * ¿El asistente esta AFIRMANDO que un turno quedo agendado?
+ *
+ * No confunde una pregunta ("¿te lo agendo?") con una afirmacion
+ * ("quedo agendado"): se mira frase por frase y las que tienen signo
+ * de pregunta no cuentan.
+ */
+export function afirmaQueAgendo(texto: string): boolean {
+  const frases = texto.split(/(?<=[.!\n])|(?=¿)/);
+  return frases.some(f => {
+    if (f.includes('?') || f.includes('¿')) return false;
+    return /\b(agendad|reservad|anotad)[oa]s?\b/i.test(f)
+        // Sin \b al final: en JS \b es ASCII y "anoté" termina en una
+        // letra que \b no reconoce como parte de la palabra.
+        || /\b(anot|agend|reserv)[ée](?![\p{L}])/iu.test(f)
+        || /\bte\s+esper(o|amos)\b/i.test(f)
+        || /\bqued(o|ó)\s+(el\s+)?turno\b/i.test(f);
+  });
+}
+
 export async function responder(
   env: Env, negocio: Negocio, entrada: MensajeEntrante,
 ): Promise<Respuesta> {
@@ -120,6 +141,37 @@ export async function responder(
     textoFinal = 'Dejame que lo confirmo con el equipo y te escribo.';
     derivo = true;
     await marcarDerivada(sb, negocio, conversacion, 'el asistente no supo que contestar');
+  }
+
+  // ── El turno que no existe ────────────────────────────────────
+  //
+  // El peor error posible del producto: el asistente contesta "Turno
+  // agendado: Masajes, mañana a las 10:00" sin que la herramienta haya
+  // agendado nada. La persona se queda esperando un turno que no esta
+  // en ningun lado y el negocio no se entera hasta que aparece.
+  //
+  // Que el modelo "sepa" que no debe hacerlo no alcanza: paso igual.
+  // Asi que esto es codigo. Si el texto AFIRMA que quedo agendado, se
+  // comprueba contra la base — no contra lo que dijo el modelo — y si
+  // no hay turno, no se manda esa frase: se deriva.
+  if (!derivo && afirmaQueAgendo(textoFinal)) {
+    const { data: turnoReal } = await sb.from('turnos')
+      .select('id')
+      .eq('cliente_id', negocio.cliente.id)
+      .eq('conversacion_id', conversacion.id)
+      .in('estado', ['agendado', 'confirmado'])
+      .limit(1).maybeSingle();
+
+    if (!turnoReal) {
+      console.error('[turno-fantasma]', negocio.cliente.slug, conversacion.id,
+        'el modelo afirmó que agendó y no hay turno en la base:', textoFinal.slice(0, 200));
+      textoFinal = 'Perdón, no me quedó confirmado el turno. Ya le paso tu mensaje a alguien ' +
+                   'del equipo y en un rato te escriben para cerrarlo.';
+      derivo = true;
+      await marcarDerivada(sb, negocio, conversacion, 'dijo que agendó y no había turno');
+      await registrarEvento(sb, negocio, conversacion, 'error', null, origenEvento,
+                            undefined, { que: 'turno-fantasma' });
+    }
   }
 
   await guardarRespuesta(sb, conversacion.id, textoFinal);

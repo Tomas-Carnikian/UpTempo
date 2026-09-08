@@ -22,9 +22,26 @@ function esc(s: unknown): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
 }
 
-/** '+598 99 000 000' -> '59899000000' */
-function numeroWa(n: Negocio): string {
-  return (n.cliente.telefono_display ?? '').replace(/[^0-9]/g, '');
+/**
+ * El numero de WhatsApp, sacado de `telefono_display`.
+ *
+ * OJO: muchos negocios publican dos numeros juntos —"2711 9115 / 095
+ * 374 187"— y el primero es el FIJO. Un wa.me a un fijo no abre nada:
+ * WhatsApp dice que el numero no existe. Por eso se busca el celular
+ * (09X o 598 9X) antes de caer en el primero que aparezca.
+ */
+export function numeroWa(n: Negocio): string {
+  const crudo = n.cliente.telefono_display ?? '';
+  // Cada numero suelto del texto, ya sin separadores.
+  const candidatos = (crudo.match(/[\d][\d\s.()-]{5,}/g) ?? [])
+    .map(x => x.replace(/[^0-9]/g, ''))
+    .filter(Boolean)
+    .map(d => d.startsWith('598') ? d
+            : d.length === 9 && d.startsWith('0') ? '598' + d.slice(1)
+            : d.length === 8 ? '598' + d : d);
+
+  const celular = candidatos.find(d => /^5989\d{7}$/.test(d));
+  return celular ?? candidatos[0] ?? '';
 }
 
 function linkWa(n: Negocio, mensaje: string): string {
@@ -63,13 +80,26 @@ function horariosLegibles(n: Negocio): string[] {
   return filas;
 }
 
-export function paginaTurnos(n: Negocio): string {
+export function paginaTurnos(n: Negocio, rutaChat = ''): string {
   const c = n.cliente;
+  const esDemo = c.estado === 'demo';
+
+  /**
+   * En una demo NO hay WhatsApp: el numero es del negocio y el negocio
+   * todavia no es cliente. Los botones abren el chat web con el mismo
+   * mensaje precargado, que ademas es lo que queremos que el dueño
+   * pruebe. Mandarlo al WhatsApp real seria mandarlo a su propio
+   * telefono, que no tiene nada del otro lado.
+   */
+  const accion = (mensaje: string) =>
+    esDemo ? `${rutaChat}?m=${encodeURIComponent(mensaje)}` : linkWa(n, mensaje);
   const fotos = Array.isArray(c.fotos) ? c.fotos : [];
   const horarios = horariosLegibles(n);
   const servicios = n.servicios; // ya vienen filtrados por activo y ordenados
 
-  const waGeneral = linkWa(n, `Hola! Quiero consultar por un turno en ${c.nombre}.`);
+  const waGeneral = accion(`Hola! Quiero consultar por un turno en ${c.nombre}.`);
+  const textoBoton = esDemo ? 'Probar el asistente' : 'Pedir turno por WhatsApp';
+  const textoBarra = esDemo ? 'Probar' : 'WhatsApp';
   const iniciales = c.nombre.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ ]/g, '')
     .split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 
@@ -171,27 +201,30 @@ ${c.estado === 'demo' ? '<meta name="robots" content="noindex, nofollow">' : ''}
   .creditos { color: var(--tinta-3); font-size: 12.5px; margin-top: 26px; }
 
   .demo { background: #fef3c7; color: #78350f; font-size: 13px; text-align: center;
-          padding: 8px 14px; }
+          padding: 10px 16px; line-height: 1.45; }
+  .demo b { font-weight: 650; }
 </style>
 </head>
 <body>
 
-${c.estado === 'demo'
-  ? '<div class="demo">Página de demostración. Este negocio y sus datos son de ejemplo.</div>'
-  : ''}
+${esDemo ? `<div class="demo">
+  <b>Demostración</b> — esta página la armó <b>Uptempo</b> con información pública de
+  ${esc(c.nombre)}. No es su sitio oficial y el negocio no la publicó.
+  Los precios y horarios pueden estar desactualizados.
+</div>` : ''}
 
 <!-- 1. barra -->
 <div class="barra"><div class="caja">
   <div class="logo">${c.logo_url ? `<img src="${esc(c.logo_url)}" alt="">` : esc(iniciales)}</div>
   <div class="marca">${esc(c.nombre)}</div>
-  <a class="wa" href="${esc(waGeneral)}" rel="noopener">WhatsApp</a>
+  <a class="wa" href="${esc(waGeneral)}" rel="noopener">${esc(textoBarra)}</a>
 </div></div>
 
 <!-- 2. encabezado -->
 <header class="caja cabecera">
   <h1>${esc(c.descripcion_corta ?? c.nombre)}</h1>
   <p>${esc(c.direccion ?? '')}</p>
-  <a class="boton-grande" href="${esc(waGeneral)}" rel="noopener">Pedir turno por WhatsApp</a>
+  <a class="boton-grande" href="${esc(waGeneral)}" rel="noopener">${esc(textoBoton)}</a>
 </header>
 
 <!-- 3. fotos -->
@@ -217,7 +250,7 @@ ${c.estado === 'demo'
     </div>
     <div class="precio">${esc(precioDe(s))}</div>
     <a class="pedir" rel="noopener"
-       href="${esc(linkWa(n, `Hola! Quiero consultar por ${s.nombre}.`))}">Consultar</a>
+       href="${esc(accion(`Hola! Quiero consultar por ${s.nombre}.`))}">Consultar</a>
   </div>`).join('\n  ')}
 </section>
 
@@ -256,8 +289,8 @@ ${c.google_place_id ? `<section class="caja resenas">
 
 <!-- 7. cierre -->
 <footer class="caja cierre">
-  <p>Escribinos y te damos hora.</p>
-  <a class="boton-grande" href="${esc(waGeneral)}" rel="noopener">Pedir turno por WhatsApp</a>
+  <p>${esDemo ? 'Preguntale al asistente lo que quieras. Contesta a cualquier hora.' : 'Escribinos y te damos hora.'}</p>
+  <a class="boton-grande" href="${esc(waGeneral)}" rel="noopener">${esc(textoBoton)}</a>
   <div class="creditos">${esc(c.nombre)}${c.direccion ? ' · ' + esc(c.direccion) : ''}</div>
 </footer>
 

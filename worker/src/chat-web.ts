@@ -12,7 +12,13 @@ import type { Negocio } from './tipos';
  * Por eso se ve como WhatsApp y lleva el nombre y los colores del
  * negocio: el dueño tiene que reconocerse en dos segundos.
  */
-export function paginaChat(n: Negocio, rutaApi: string): string {
+/**
+ * `precargado` llega desde los botones de la pagina de turnos cuando el
+ * negocio es una demo: ahi no hay WhatsApp que abrir, asi que el boton
+ * trae el mensaje hasta aca. Se escribe en el campo pero NO se manda
+ * solo: el que aprieta enter tiene que ser el dueño, no nosotros.
+ */
+export function paginaChat(n: Negocio, rutaApi: string, precargado = ''): string {
   const c = n.cliente;
   const esc = (s: string) => s.replace(/[&<>"]/g, m =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
@@ -156,6 +162,9 @@ export function paginaChat(n: Negocio, rutaApi: string): string {
     }
     boton.disabled = false; input.focus();
   }
+
+  var precargado = ${JSON.stringify(precargado.slice(0, 300))};
+  if (precargado) { input.value = precargado; setTimeout(function () { input.focus(); }, 60); }
 
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();

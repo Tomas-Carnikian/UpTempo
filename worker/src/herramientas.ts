@@ -120,6 +120,22 @@ function conCalendario(ctx: Ctx): string | null {
 export async function ejecutar(
   nombre: string, args: Record<string, unknown>, ctx: Ctx,
 ): Promise<ResultadoHerramienta> {
+  const t0 = Date.now();
+  const r = await ejecutarInterno(nombre, args, ctx);
+  // Toda llamada a una herramienta queda en el log, con lo que le
+  // contestamos al modelo. Sin esto, "el asistente dijo que agendo y
+  // no agendo" solo se puede investigar adivinando: no se sabe si la
+  // herramienta fallo, si devolvio un error que el modelo ignoro, o si
+  // nunca la llamo. Con esto se ve en `wrangler tail` en un minuto.
+  console.log('[tool]', ctx.negocio.cliente.slug, nombre,
+    JSON.stringify(args).slice(0, 200), '->', r.salida.slice(0, 200),
+    `${Date.now() - t0}ms`);
+  return r;
+}
+
+async function ejecutarInterno(
+  nombre: string, args: Record<string, unknown>, ctx: Ctx,
+): Promise<ResultadoHerramienta> {
   const { env, sb, negocio, conversacion } = ctx;
   const tz = negocio.cliente.timezone;
 
