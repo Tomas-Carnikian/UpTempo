@@ -27,20 +27,26 @@ enabled = true
 crons = ["*/15 * * * *"]
 
 # ---------------------------------------------------------------
-# Rutas de produccion. Se descomentan cuando la delegacion de
-# uptempo.uy a Cloudflare este efectiva.
+# Rutas de produccion. Activas desde el 2026-09-08: nic.uy ya publica
+# luciana.ns.cloudflare.com y tim.ns.cloudflare.com para uptempo.uy.
 #
 # El wildcard de un solo nivel es lo que hace que dar de alta un
 # cliente no toque DNS ni certificados: Universal SSL cubre
 # uptempo.uy y *.uptempo.uy gratis. Nunca dos niveles.
-# ---------------------------------------------------------------
-# [[routes]]
-# pattern = "*.uptempo.uy/*"
-# zone_name = "uptempo.uy"
 #
-# [[routes]]
-# pattern = "uptempo.uy/*"
-# zone_name = "uptempo.uy"
+# OJO: una ruta de Worker necesita igual un registro DNS en la zona
+# que la haga "proxied" (la nube naranja). Sin eso el nombre no
+# resuelve y la ruta no llega a evaluarse nunca. Con un AAAA a 100::
+# —la direccion de descarte de IPv6— alcanza: no hay servidor detras,
+# el Worker contesta antes.
+# ---------------------------------------------------------------
+[[routes]]
+pattern = "*.uptempo.uy/*"
+zone_name = "uptempo.uy"
+
+[[routes]]
+pattern = "uptempo.uy/*"
+zone_name = "uptempo.uy"
 
 # ---------------------------------------------------------------
 # Secretos (NO van aca). Se cargan una sola vez con:
