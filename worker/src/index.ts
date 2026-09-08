@@ -13,7 +13,8 @@ import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
 import { extraerFicha } from './extraccion';
-import { insertarFicha, listarDemos, borrarDemo, purgarDemos } from './demos';
+import { insertarFicha, listarDemos, borrarDemo, purgarDemos, mensajeDeContacto } from './demos';
+import { buscarLugares, combinar, hayPlaces, MAX_POR_LOTE } from './places';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -205,6 +206,85 @@ app.get('/admin/demos', async c => {
   if (!soloLocal(c)) return c.notFound();
   try { return c.json(await listarDemos(c.env)); }
   catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+// ── El lote (paso 9.4) ──────────────────────────────────────────
+/**
+ * Una busqueda de Places -> hasta 20 demos + 20 mensajes listos.
+ *
+ *   POST /admin/demos/lote {"busqueda":"depilación definitiva Montevideo"}
+ *   POST /admin/demos/lote {"busqueda":"…","max":5,"saltar":5}
+ *
+ * `max` y `saltar` existen porque veinte negocios son veinte busquedas
+ * de sitio (hasta 5 paginas cada una) mas veinte llamadas al modelo:
+ * en una sola invocacion eso se pasa de tiempo. De a 5 anda comodo y
+ * se sigue con saltar=5, 10, 15.
+ *
+ * Un negocio que falla NO frena el lote: queda en `fallaron` con el
+ * motivo. Diecinueve demos y un error es un buen resultado; cero
+ * demos porque una clinica tiene el sitio caido, no.
+ */
+app.post('/admin/demos/lote', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  if (!hayPlaces(c.env)) {
+    return c.text('Falta GOOGLE_PLACES_KEY. Cargala en .dev.vars y con wrangler secret put.', 400);
+  }
+
+  const body = await c.req.json().catch(() => ({} as any));
+  const busqueda = String(body.busqueda ?? '').trim();
+  if (!busqueda) return c.text('Mandá {"busqueda":"depilación definitiva Montevideo"}.', 400);
+
+  const max = Math.min(Number(body.max) || 5, MAX_POR_LOTE);
+  const saltar = Math.max(Number(body.saltar) || 0, 0);
+
+  let lugares;
+  try {
+    lugares = await buscarLugares(c.env, busqueda, MAX_POR_LOTE);
+  } catch (e: any) {
+    return c.text(e?.message ?? 'error', 502);
+  }
+
+  const tanda = lugares.slice(saltar, saltar + max);
+  const hechas: any[] = [];
+  const fallaron: any[] = [];
+
+  for (const lugar of tanda) {
+    try {
+      // El sitio web es opcional: sin el sale una ficha sin servicios,
+      // que es el caso de la clinica que solo tiene Instagram.
+      let web = null;
+      if (lugar.sitio) {
+        web = await extraerFicha(c.env, { url: lugar.sitio }).catch((e: any) => {
+          console.log('[lote] sin web utilizable', lugar.nombre, e?.message);
+          return null;
+        });
+      }
+      const ficha = combinar(lugar, web);
+      const r = await insertarFicha(c.env, ficha);
+      hechas.push({
+        ...r,
+        url: `${r.slug}.uptempo.uy`,
+        // Sobre los que quedaron INSERTADOS, no sobre los de la ficha:
+        // insertarFicha descarta los repetidos y si no, el resumen
+        // decia "42 servicios, 48 con precio".
+        servicios_con_precio: Math.min(
+          ficha.servicios.filter(s => s.precio !== null).length, r.servicios),
+        sitio: lugar.sitio,
+        mensaje: mensajeDeContacto(ficha, r.slug, busqueda),
+      });
+    } catch (e: any) {
+      fallaron.push({ nombre: lugar.nombre, sitio: lugar.sitio, motivo: e?.message ?? 'error' });
+    }
+  }
+
+  return c.json({
+    busqueda,
+    encontrados: lugares.length,
+    procesados: `${saltar + 1}-${saltar + tanda.length} de ${lugares.length}`,
+    siguiente: saltar + tanda.length < lugares.length
+      ? { busqueda, max, saltar: saltar + tanda.length } : null,
+    hechas, fallaron,
+  });
 });
 
 /**

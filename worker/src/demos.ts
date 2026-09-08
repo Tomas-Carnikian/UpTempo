@@ -110,6 +110,12 @@ export async function insertarFicha(env: Env, ficha: Ficha): Promise<ResultadoIn
     telefono_display: ficha.telefono_display,
     formas_pago: ficha.formas_pago,
     descripcion_corta: ficha.descripcion_corta,
+    // De Places (9.4). Si la ficha no paso por Places quedan null, que
+    // es lo correcto: la pagina no dibuja el mapa sin coordenadas.
+    lat: ficha.lat ?? null,
+    lon: ficha.lon ?? null,
+    google_place_id: ficha.google_place_id ?? null,
+    maps_url: ficha.maps_url ?? null,
     actualizado_en: new Date().toISOString(),
   };
 
@@ -345,4 +351,76 @@ export async function purgarDemos(env: Env, ahora = new Date()): Promise<Resulta
                 '| conservadas por uso', conservadas.length);
   }
   return { revisadas: filas.length, borradas, conservadas_por_uso: conservadas };
+}
+
+// ── El mensaje de contacto (paso 9.4) ───────────────────────────
+
+/**
+ * El texto del primer mensaje que Tomas le manda al dueño.
+ *
+ * NO lo escribe un modelo, y es a proposito. Veinte mensajes generados
+ * salen todos con el mismo aire y se huelen a distancia; ademas un
+ * modelo puede inventar un detalle del negocio, que es justo lo que no
+ * puede pasar en el primer contacto. Esto arma el mensaje con datos
+ * que estan en la ficha, y el "gancho" sale de lo que ese negocio
+ * efectivamente publico.
+ *
+ * Es el texto base: Tomas lo edita si quiere. Lo que no puede es
+ * contener nada que no sea verdad.
+ */
+export function mensajeDeContacto(ficha: Ficha, slug: string, interes = ''): string {
+  const url = `${slug}.uptempo.uy`;
+  // El mas barato de los que tienen precio: en depilacion es la zona
+  // chica (axilas, bozo), que es la que engancha. El primero de la
+  // lista puede ser cualquier cosa — en Goodbye Pelos era "depilacion
+  // con cera - abdomen", que no es lo que le queres mostrar a una
+  // clinica de depilacion definitiva.
+  // De los que tienen precio, primero los que hablan de lo que fuimos
+  // a buscar. Goodbye Pelos vende depilacion definitiva Y con cera, y
+  // el mas barato de toda la lista era "depilacion con cera - narinas
+  // $80": cierto, pero no es lo que le mostras a una clinica de
+  // definitiva. Entre los que si aplican, gana el mas barato — en este
+  // rubro la zona chica es la que engancha.
+  const claves = interes.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().split(/\s+/).filter(p => p.length > 4);
+  // Se cuenta CUANTAS palabras de la busqueda tiene cada servicio, no
+  // si tiene alguna: "depilacion con cera" y "depilacion definitiva"
+  // comparten "depilacion", y quedarse con eso volvia a elegir la
+  // cera. Gana el grupo que mas coincide, y dentro de ese, el barato.
+  const puntos = (s: any) => {
+    const n = s.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return claves.filter((k: string) => n.includes(k)).length;
+  };
+  const todos = ficha.servicios
+    .filter(s => s.precio !== null)
+    .sort((a, b) => Number(a.precio) - Number(b.precio));
+  const mejor = Math.max(0, ...todos.map(puntos));
+  const delRubro = mejor > 0 ? todos.filter(s => puntos(s) === mejor) : todos;
+  // Si el grupo del rubro es chico pero la ficha SI tiene precios, se
+  // usa la lista entera. VAIG tenia 6 servicios con precio y el
+  // mensaje no mencionaba ninguno porque solo uno coincidia con la
+  // busqueda: quedaba un mensaje mas debil teniendo el dato a mano.
+  const conPrecio = delRubro.length >= 3 ? delRubro : todos;
+
+  // El gancho, por orden de lo mas concreto a lo mas generico.
+  let gancho: string;
+  if (conPrecio.length >= 3) {
+    const s = conPrecio[0];
+    gancho = `Le cargué sus servicios con los precios de su web (${s.nombre.toLowerCase()} ` +
+             `$${Number(s.precio).toLocaleString('es-UY', { maximumFractionDigits: 0 })}, ` +
+             `y ${conPrecio.length - 1} más)`;
+  } else if (ficha.servicios.length) {
+    gancho = `Le cargué los servicios que tienen publicados`;
+  } else {
+    gancho = `Está armada con la información que tienen publicada`;
+  }
+
+  const cierre = ficha.horarios.length
+    ? 'Contesta también cuando el local está cerrado, que es cuando se pierden las consultas.'
+    : 'Contesta a cualquier hora, que es cuando se pierden las consultas.';
+
+  return `Hola! Te escribo de Uptempo. Armé una demostración del asistente de WhatsApp ` +
+         `para ${ficha.nombre}, para que la veas funcionando antes de decidir nada: ${url}\n\n` +
+         `${gancho}. ${cierre}\n\n` +
+         `Si te sirve la charlamos, y si no te borro la página y listo.`;
 }

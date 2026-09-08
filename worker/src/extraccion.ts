@@ -54,6 +54,13 @@ export interface Ficha {
   servicios: ServicioFicha[];
   horarios: HorarioFicha[];
   base_conocimiento: string;
+  // Estos cuatro NO salen del sitio web: los aporta Google Places en
+  // el 9.4. Van en la ficha para que insertarFicha no tenga que saber
+  // de donde vino cada dato.
+  lat?: number | null;
+  lon?: number | null;
+  google_place_id?: string | null;
+  maps_url?: string | null;
   /** Para revisar a ojo que salio bien y por que. */
   origen: {
     url: string | null;
@@ -61,6 +68,8 @@ export interface Ficha {
     paginas: string[];
     caracteres: number;
     precios_descartados: string[];
+    /** place_id, cuando la ficha paso por Places. */
+    places?: string;
   };
 }
 
@@ -290,10 +299,71 @@ export async function bajarSitios(
  * generador corre por lotes de 20 y no puede frenarse porque una
  * clinica se llame "App Estetica".
  */
-export function slugificar(nombre: string): string {
-  let s = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+/**
+ * Palabras que van adelante del nombre y no lo identifican. Se sacan
+ * SOLO del principio: "Clinica de Estetica Medica ALMA LASER" es
+ * "almalaser", pero "Centro" en el medio de un nombre se respeta.
+ */
+const GENERICAS = new Set([
+  'clinica', 'centro', 'estudio', 'instituto', 'consultorio', 'policlinica',
+  'spa', 'medica', 'medico', 'estetica', 'integral', 'de', 'del', 'la', 'el',
+  'los', 'las', 'y', 'dr', 'dra', 'doctor', 'doctora',
+]);
+
+/**
+ * El nombre real, cuando en Google Maps viene con relleno de SEO.
+ *
+ * Muchas fichas de Maps son "Depilacion Laser Definitiva y Estetica |
+ * Clinica Jamelia" o "Depimed | Depilacion Laser Definitiva": el
+ * negocio se llama Clinica Jamelia y Depimed, y lo demas son palabras
+ * puestas para aparecer en las busquedas. Si no se limpia, el slug
+ * sale "depilacionlaser.uptempo.uy" —generico, y encima chocaria con
+ * la clinica siguiente— y el mensaje de contacto arranca con un
+ * nombre con una barra en el medio.
+ *
+ * Entre los pedazos separados por | – — · gana EL MAS CORTO en
+ * palabras: el relleno siempre es la parte larga.
+ */
+export function nombreDeNegocio(nombre: string): string {
+  const partes = nombre.split(/\s*[|–—·]\s*/).map(p => p.trim()).filter(Boolean);
+  if (partes.length < 2) return nombre.trim();
+  return partes.reduce((a, b) =>
+    b.split(/\s+/).length < a.split(/\s+/).length ? b : a);
+}
+
+/** Tope propio, mas corto que el de la base: un subdominio se manda por WhatsApp. */
+const LARGO_SLUG = 24;
+
+export function slugificar(nombreCrudo: string): string {
+  const nombre = nombreDeNegocio(nombreCrudo);
+  const limpio = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const palabras = nombre.split(/\s+/).map(limpio).filter(Boolean);
+
+  // Las genericas del principio se descartan SOLO en nombres largos.
+  // En "Clinica de Estetica Medica ALMA LASER" (6 palabras) las
+  // primeras cuatro sobran y el negocio es "almalaser". Pero en
+  // "Clinica Soñe" o "Estetica & Salud SRL" la palabra generica ES
+  // parte del nombre, y sacarla dejaba "sone" y "saludsrl": el slug de
+  // un negocio que no existe.
+  let i = 0;
+  if (palabras.length >= 4) {
+    while (i < palabras.length - 1 && GENERICAS.has(palabras[i])) i++;
+  }
+  const utiles = palabras.slice(i);
+
+  // Se corta por PALABRA, nunca por letra: cortar por letra daba
+  // "clinicadeesteticamedicaalmalas.uptempo.uy", que es un link que
+  // nadie abre.
+  let s = '';
+  for (const p of utiles) {
+    if (s && (s + p).length > LARGO_SLUG) break;
+    s += p;
+  }
+  if (!s) s = limpio(nombre).slice(0, LARGO_SLUG);
   if (!s) s = 'negocio';
+
   // El check de la base exige entre 3 y 30 caracteres. Pasarse no da un
   // error legible: revienta el insert en la mitad de un lote de 20.
   s = s.slice(0, 30);

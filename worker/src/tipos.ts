@@ -18,6 +18,8 @@ export interface Env {
   WA_API_VERSION?: string;   // opcional, ej "v21.0"
   /** Modelo del generador de demos (paso 9). Por defecto, Haiku. */
   MODELO_EXTRACCION?: string;
+  /** Google Places API (New). Solo la usa el generador de demos. */
+  GOOGLE_PLACES_KEY?: string;
 }
 
 export type Canal = 'web' | 'whatsapp';
