@@ -12,6 +12,7 @@ import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
+import { extraerFicha } from './extraccion';
 
 /**
  * UN SOLO Worker para los 30 clientes.
@@ -131,6 +132,32 @@ app.post('/admin/plantillas/:slug', async c => {
   try {
     return c.json(await crearPlantillas(c.env, waba));
   } catch (e: any) { return c.text(e?.message ?? 'error', 500); }
+});
+
+// ── Generador de demos: la extracción (paso 9.1) ────────────────
+/**
+ * De una URL sale una FICHA en JSON. Todavía no toca la base ni usa
+ * Places: eso es el 9.2 y el 9.4.
+ *
+ *   POST /admin/extraer  {"url":"https://…"}
+ *   POST /admin/extraer  {"url":"…","extra":"bio y posts pegados a mano"}
+ *
+ * Cerrada por host como todas las de alta. Se revisa a ojo: mirar
+ * `origen.precios_descartados`, que es donde se ve si el modelo intentó
+ * inventar un precio y el código se lo borró.
+ */
+app.post('/admin/extraer', async c => {
+  if (!soloLocal(c)) return c.notFound();
+  const body = await c.req.json().catch(() => ({} as any));
+  const url = String(body.url ?? '').trim();
+  const extra = String(body.extra ?? '').trim();
+  if (!url && !extra) return c.text('Mandá {"url":"https://…"} o al menos {"extra":"…"}.', 400);
+  if (url && !/^https?:\/\//i.test(url)) return c.text('La url tiene que empezar con http:// o https://', 400);
+  try {
+    return c.json(await extraerFicha(c.env, { url: url || undefined, extra: extra || undefined }));
+  } catch (e: any) {
+    return c.text(e?.message ?? 'error', 502);
+  }
 });
 
 /** Corre el cron a mano, para no esperar 15 minutos al probarlo. */

@@ -16,6 +16,8 @@ export interface Env {
   WA_VERIFY_TOKEN?: string;  // lo inventamos nosotros y se pega en Meta
   WA_APP_SECRET?: string;    // para validar la firma de cada webhook
   WA_API_VERSION?: string;   // opcional, ej "v21.0"
+  /** Modelo del generador de demos (paso 9). Por defecto, Haiku. */
+  MODELO_EXTRACCION?: string;
 }
 
 export type Canal = 'web' | 'whatsapp';
