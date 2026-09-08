@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Beauty Planet</title>
+<style>
+  :root {
+    --primario: #2f4858;
+    --fondo: #e9e2dc;
+    --burbuja-yo: #d6f2c7;
+    --burbuja-otro: #ffffff;
+    --texto: #14181c;
+    --tenue: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fondo); color: var(--texto);
+    font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; min-height: 100dvh;
+  }
+  .tel { width: 100%; max-width: 460px; display: flex; flex-direction: column;
+         background: var(--fondo); box-shadow: 0 0 40px rgba(0,0,0,.12); }
+  header { background: var(--primario); color: #fff; padding: 12px 16px;
+           display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 2; }
+  #reset { background: rgba(255,255,255,.16); border: 0; color: #fff;
+           width: auto; height: auto; border-radius: 14px; padding: 8px 12px;
+           font-size: 12px; cursor: pointer; min-height: 36px;
+           transition: background .18s ease; }
+  #reset:hover { background: rgba(255,255,255,.28); }
+  .acciones { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  /* Volver. Es un enlace de verdad, no history.back(): si alguien
+     entra al chat desde un link directo no hay "atras" al que volver,
+     y un boton que a veces no hace nada es peor que no tenerlo. */
+  .volver { display: inline-flex; align-items: center; gap: 6px; color: #fff;
+            text-decoration: none; background: rgba(255,255,255,.16);
+            border-radius: 14px; padding: 8px 12px; font-size: 12px;
+            min-height: 36px; transition: background .18s ease; }
+  .volver:hover { background: rgba(255,255,255,.28); }
+  @media (max-width: 380px) { .volver span, #reset { display: none; } }
+
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 3px solid #fff; outline-offset: 2px;
+  }
+  #hilo a:focus-visible { outline-color: var(--primario); }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+  .av { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.22);
+        display: grid; place-items: center; font-weight: 600; font-size: 15px; flex: none; }
+  .tit { font-weight: 600; line-height: 1.2; }
+  .sub { font-size: 12px; opacity: .8; }
+  .demo { background: #fef3c7; color: #78350f; font-size: 12px; text-align: center;
+          padding: 6px 10px; border-bottom: 1px solid #fde68a; }
+  #hilo { flex: 1; overflow-y: auto; padding: 14px 12px 8px; display: flex;
+          flex-direction: column; gap: 8px; }
+  .m { max-width: 82%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap;
+       word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.07); }
+  .m.yo { align-self: flex-end; background: var(--burbuja-yo); border-bottom-right-radius: 3px; }
+  .m.otro { align-self: flex-start; background: var(--burbuja-otro); border-bottom-left-radius: 3px; }
+  .hora { display: block; font-size: 11px; color: var(--tenue); text-align: right; margin-top: 2px; }
+  .esc { align-self: flex-start; color: var(--tenue); font-size: 13px; font-style: italic; padding: 2px 4px; }
+  form { display: flex; gap: 8px; padding: 10px; background: #f4efe9; position: sticky; bottom: 0; }
+  input[type=text] { flex: 1; border: 1px solid #d6cec6; border-radius: 20px;
+                     padding: 10px 14px; font-size: 15px; background: #fff; }
+  input[type=text]:focus { outline: 2px solid var(--primario); outline-offset: -1px; }
+  button { border: 0; background: var(--primario); color: #fff; border-radius: 50%;
+           width: 44px; height: 44px; cursor: pointer; flex: none;
+           display: grid; place-items: center; transition: filter .18s ease; }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .5; cursor: default; }
+  .sug { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }
+  .sug button { width: auto; height: auto; border-radius: 14px; padding: 9px 13px;
+                font-size: 13px; background: #fff; color: var(--primario);
+                border: 1px solid #d6cec6; min-height: 40px;
+                transition: background .18s ease, border-color .18s ease; }
+  .sug button:hover { background: var(--burbuja-otro); border-color: var(--primario); }
+</style>
+</head>
+<body>
+<div class="tel">
+  <header>
+    <div class="av">BE</div>
+    <div>
+      <div class="tit">Beauty Planet</div>
+      <div class="sub">en línea</div>
+    </div>
+    <div class="acciones">
+      <a class="volver" href="/p/beautyplanet"
+         aria-label="Volver a precios y horarios"><svg width="15" height="15" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+         stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+         <span>precios</span></a>
+      <a class="volver" href="/panel"
+         aria-label="Ver el panel"><span>panel</span></a>
+      <button type="button" id="reset" title="Empezar una conversación nueva">nueva</button>
+    </div>
+  </header>
+  <div class="demo">Demostración. Este no es el WhatsApp real del negocio.</div>
+  <div id="hilo"></div>
+  <div class="sug">
+    <button type="button" data-t="Hola! Cuánto sale depilación definitiva - axilas?">precio axilas</button>
+    <button type="button" data-t="¿Qué horario tienen los sábados?">horario sábado</button>
+    <button type="button" data-t="Quiero sacar un turno para depilación definitiva - bozo">sacar turno</button>
+  </div>
+  <form id="f" autocomplete="off">
+    <input type="text" id="t" placeholder="Escribí un mensaje" required>
+    <button type="submit" id="b" aria-label="Enviar"><svg width="19" height="19"
+      viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg></button>
+  </form>
+</div>
+<script>
+(function () {
+  var API = "/c/beautyplanet/chat";
+  var hilo = document.getElementById('hilo');
+  var form = document.getElementById('f');
+  var input = document.getElementById('t');
+  var boton = document.getElementById('b');
+
+  // Id de sesion del navegador. Es lo que hace de "numero de telefono"
+  // en el canal web: identifica la conversacion, nada mas.
+  var sesion;
+  try {
+    sesion = localStorage.getItem('uptempo_sesion');
+    if (!sesion) { sesion = 'web-' + crypto.randomUUID(); localStorage.setItem('uptempo_sesion', sesion); }
+  } catch (e) { sesion = 'web-' + Math.random().toString(36).slice(2); }
+
+  function hora() {
+    var d = new Date();
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  function burbuja(texto, quien) {
+    var d = document.createElement('div');
+    d.className = 'm ' + quien;
+    d.textContent = texto;
+    var h = document.createElement('span');
+    h.className = 'hora'; h.textContent = hora();
+    d.appendChild(h);
+    hilo.appendChild(d);
+    hilo.scrollTop = hilo.scrollHeight;
+    return d;
+  }
+  function escribiendo(on) {
+    var e = document.getElementById('esc');
+    if (on && !e) {
+      e = document.createElement('div');
+      e.id = 'esc'; e.className = 'esc'; e.textContent = 'escribiendo…';
+      hilo.appendChild(e); hilo.scrollTop = hilo.scrollHeight;
+    } else if (!on && e) { e.remove(); }
+  }
+
+  async function enviar(texto) {
+    burbuja(texto, 'yo');
+    input.value = ''; boton.disabled = true; escribiendo(true);
+    try {
+      var r = await fetch(API, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sesion: sesion, texto: texto })
+      });
+      var j = await r.json();
+      escribiendo(false);
+      if (j.texto) burbuja(j.texto, 'otro');
+      else if (j.derivada) burbuja('(la conversación quedó con una persona del equipo)', 'otro');
+      else burbuja('Uy, algo falló de mi lado. Probá de nuevo.', 'otro');
+    } catch (e) {
+      escribiendo(false);
+      burbuja('No pude conectarme. Probá de nuevo.', 'otro');
+    }
+    boton.disabled = false; input.focus();
+  }
+
+  var precargado = "Hola! Quiero consultar por Depilación Definitiva - Axilas.";
+  if (precargado) { input.value = precargado; setTimeout(function () { input.focus(); }, 60); }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var t = input.value.trim();
+    if (t) enviar(t);
+  });
+  document.querySelectorAll('.sug button').forEach(function (b) {
+    b.addEventListener('click', function () { enviar(b.dataset.t); });
+  });
+
+  // Conversación nueva: hace falta para probar las derivaciones (después
+  // de derivar, el bot se calla 24 h en esa conversación) y para grabar
+  // un demo desde cero.
+  document.getElementById('reset').addEventListener('click', function () {
+    try { localStorage.removeItem('uptempo_sesion'); } catch (e) {}
+    location.reload();
+  });
+
+  burbuja("Hola! Soy de Beauty Planet. ¿En qué te puedo ayudar?", 'otro');
+})();
+</script>
+</body>
+</html>

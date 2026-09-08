@@ -13,7 +13,9 @@ import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
 import { extraerFicha } from './extraccion';
-import { insertarFicha, listarDemos, borrarDemo, purgarDemos, mensajeDeContacto } from './demos';
+import {
+  insertarFicha, listarDemos, borrarDemo, purgarDemos, mensajeDeContacto, asuntoDeContacto,
+} from './demos';
 import { buscarLugares, combinar, hayPlaces, MAX_POR_LOTE } from './places';
 
 /**
@@ -270,6 +272,7 @@ app.post('/admin/demos/lote', async c => {
         servicios_con_precio: Math.min(
           ficha.servicios.filter(s => s.precio !== null).length, r.servicios),
         sitio: lugar.sitio,
+        asunto: asuntoDeContacto(ficha),
         mensaje: mensajeDeContacto(ficha, r.slug, busqueda),
       });
     } catch (e: any) {
@@ -429,11 +432,55 @@ async function turnosDe(c: any, slug: string) {
   if (!negocio) return c.text(`No encuentro el negocio "${slug}".`, 404);
   // En el subdominio del cliente el chat vive en /chat; en local, en
   // /c/<slug>. La pagina no puede adivinarlo: se lo decimos.
-  const rutaChat = slugDeHost(c.req.header('host') ?? '') ? '/chat' : `/c/${slug}`;
-  return c.html(paginaTurnos(negocio, rutaChat), 200, {
+  const enSubdominio = Boolean(slugDeHost(c.req.header('host') ?? ''));
+  const rutaChat = enSubdominio ? '/chat' : `/c/${slug}`;
+  // El panel solo se enlaza en las demos: en la pagina publica de un
+  // cliente, el panel es del dueño y no tiene nada que hacer a la
+  // vista de quien viene a sacar un turno.
+  const rutaPanel = await panelSiHayDueno(c, negocio, enSubdominio);
+  return c.html(paginaTurnos(negocio, rutaChat, rutaPanel), 200, {
     // La página cambia cuando cambian los precios, no en cada visita.
     'cache-control': 'public, max-age=120, stale-while-revalidate=600',
   });
+}
+
+/**
+ * El link al panel: solo en demos, y solo si esa demo tiene a alguien
+ * cargado en usuarios_panel.
+ *
+ * OJO CON EL ALCANCE, porque es facil creer que hace mas de lo que
+ * hace: NO sabe quien esta mirando. La pagina es HTML estatico y se
+ * cachea 120 s, asi que cuando se arma no hay sesion de nadie. La
+ * pregunta que responde es "¿hay alguien autorizado en esta demo?",
+ * no "¿el que esta mirando lo esta?".
+ *
+ * Lo que evita: mandar una demo sin haber cargado el mail y que el
+ * dueño caiga en "tu correo no tiene ningun negocio asociado", que es
+ * pesima primera impresion en la pagina que le mandamos para
+ * impresionarlo.
+ *
+ * Lo que NO evita: que un tercero vea el boton y caiga en ese mismo
+ * cartel. Se acepta porque el link de una demo se le manda al dueño y
+ * no se publica, asi que en la practica el unico que la abre es el.
+ * Y del otro lado del boton no hay ningun dato: sin enlace magico no
+ * se entra, y con el, RLS solo muestra lo que esa persona tenga en
+ * usuarios_panel.
+ *
+ * En un cliente 'activo' devuelve vacio siempre: el panel es del
+ * dueño y no tiene nada que hacer en su pagina publica.
+ *
+ * La consulta corre SOLO en demos, que son pocas y de poco trafico, y
+ * el negocio ya viene del cache de 45 s.
+ */
+async function panelSiHayDueno(c: any, negocio: any, enSubdominio: boolean): Promise<string> {
+  if (negocio.cliente.estado !== 'demo') return '';
+  try {
+    const { count } = await db(c.env).from('usuarios_panel')
+      .select('id', { count: 'exact', head: true })
+      .eq('cliente_id', negocio.cliente.id);
+    if (!count) return '';
+  } catch { return ''; }
+  return enSubdominio ? 'https://panel.uptempo.uy' : '/panel';
 }
 
 async function chatDe(c: any, slug: string, rutaApi: string) {
@@ -441,7 +488,10 @@ async function chatDe(c: any, slug: string, rutaApi: string) {
   if (!negocio) return c.text(`No encuentro el negocio "${slug}".`, 404);
   // ?m= lo ponen los botones de la pagina de turnos de una demo.
   const precargado = (c.req.query('m') ?? '').slice(0, 300);
-  return c.html(paginaChat(negocio, rutaApi, precargado));
+  const enSubdominio = Boolean(slugDeHost(c.req.header('host') ?? ''));
+  const rutaTurnos = enSubdominio ? '/' : `/p/${slug}`;
+  const rutaPanel = await panelSiHayDueno(c, negocio, enSubdominio);
+  return c.html(paginaChat(negocio, rutaApi, precargado, rutaTurnos, rutaPanel));
 }
 
 // ── API del chat ────────────────────────────────────────────────

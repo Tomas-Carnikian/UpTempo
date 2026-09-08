@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beauty Planet · Turnos</title>
+<meta name="description" content="Depilación definitiva, day spa y estética">
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root {
+    --primario: #2f4858;
+    --secundario: #d98ca5;
+    /* Verde WhatsApp oscurecido. El #25d366 de la marca con texto
+       blanco da 1,98:1 de contraste — muy por debajo del 4,5:1 que
+       exige WCAG AA. Este da 5,22:1 y se sigue leyendo como WhatsApp. */
+    --wa: #0f7a6c;
+    --tinta: #14181c;
+    --tinta-2: #59636e;
+    /* Era #8b949e: 3,08:1 sobre blanco, y lo usan la duracion de cada
+       servicio y los pies de foto. Este da 4,89:1. */
+    --tinta-3: #68727d;
+    --plano: #ffffff;
+    --piso: #f6f5f3;
+    --linea: #e6e3de;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  /* Nadie navega esta pagina con teclado hasta que alguien lo hace: el
+     dueño que la revisa en su notebook, o quien no puede usar el mouse.
+     Sin foco visible, esa persona no sabe donde esta parada. */
+  a:focus-visible, button:focus-visible {
+    outline: 3px solid var(--primario); outline-offset: 2px; border-radius: 6px;
+  }
+  a, button { cursor: pointer; }
+  /* Ni una animacion para quien pidio que no las haya. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+  body { margin: 0; color: var(--tinta); background: var(--plano);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .caja { max-width: 720px; margin: 0 auto; padding: 0 18px; }
+  a { color: inherit; }
+
+  /* 1. barra */
+  .barra { position: sticky; top: 0; z-index: 10; background: var(--plano);
+           border-bottom: 1px solid var(--linea); }
+  .barra .caja { display: flex; align-items: center; gap: 10px; height: 60px; }
+  .logo { width: 36px; height: 36px; border-radius: 9px; background: var(--primario);
+          color: #fff; display: grid; place-items: center; font-weight: 650; font-size: 14px;
+          flex: none; overflow: hidden; }
+  .logo img { width: 100%; height: 100%; object-fit: cover; }
+  .marca { font-weight: 620; font-size: 17px; letter-spacing: -.01em; }
+  .acciones { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .wa { background: var(--wa); color: #fff; text-decoration: none;
+        padding: 11px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+        white-space: nowrap; min-height: 44px; display: inline-flex; align-items: center;
+        transition: filter .18s ease; }
+  .wa:hover { filter: brightness(1.12); }
+  /* Secundario, y solo en demos: el panel es del dueño, no de la clienta. */
+  .secundario { color: var(--tinta-2); text-decoration: none; font-size: 14px;
+                font-weight: 580; white-space: nowrap; padding: 11px 12px;
+                min-height: 44px; display: inline-flex; align-items: center; gap: 6px;
+                border-radius: 999px; transition: background .18s ease, color .18s ease; }
+  .secundario:hover { background: var(--piso); color: var(--tinta); }
+  @media (max-width: 430px) { .secundario span { display: none; } }
+
+  /* 2. encabezado */
+  .cabecera { padding: 40px 0 28px; }
+  .cabecera h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -.02em; }
+  .cabecera p { color: var(--tinta-2); margin: 0 0 22px; font-size: 17px; }
+  .boton-grande { display: inline-block; background: var(--wa); color: #fff;
+                  text-decoration: none; padding: 15px 26px; border-radius: 999px;
+                  font-size: 17px; font-weight: 620; }
+
+  /* 3. fotos */
+  .fotos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 4px; }
+  @media (max-width: 560px) { .fotos { grid-template-columns: repeat(2, 1fr); } }
+  .foto { aspect-ratio: 4/3; border-radius: 10px; overflow: hidden; background: var(--piso); }
+  .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hueco { border: 1px dashed var(--linea); display: grid; place-items: center;
+           color: var(--tinta-3); font-size: 12px; text-align: center; }
+  .hueco svg { display: block; margin: 0 auto 4px; opacity: .55; }
+  .pie-fotos { color: var(--tinta-3); font-size: 12.5px; margin: 6px 0 0; }
+
+  /* 4. servicios — la sección que importa */
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em;
+       color: var(--tinta-3); font-weight: 620; margin: 40px 0 14px; }
+  .servicio { display: flex; align-items: center; gap: 14px; padding: 15px 0;
+              border-top: 1px solid var(--linea); }
+  .servicio:last-child { border-bottom: 1px solid var(--linea); }
+  .servicio .datos { flex: 1; min-width: 0; }
+  .servicio .nombre { font-weight: 580; }
+  .servicio .detalle { color: var(--tinta-3); font-size: 13.5px; margin-top: 2px; }
+  .servicio .precio { font-weight: 650; font-size: 17px; white-space: nowrap;
+                      font-variant-numeric: tabular-nums; }
+  .servicio .pedir { background: var(--primario); color: #fff; text-decoration: none;
+                     padding: 11px 16px; border-radius: 999px; font-size: 13.5px;
+                     font-weight: 600; white-space: nowrap; flex: none;
+                     min-height: 44px; display: inline-flex; align-items: center;
+                     transition: filter .18s ease; }
+  .servicio .pedir:hover { filter: brightness(1.15); }
+  .boton-grande { transition: filter .18s ease; }
+  .boton-grande:hover { filter: brightness(1.12); }
+  @media (max-width: 520px) {
+    .servicio { flex-wrap: wrap; gap: 8px 14px; }
+    .servicio .datos { flex-basis: 100%; }
+  }
+
+  /* 5. horarios, dirección, mapa */
+  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 560px) { .info { grid-template-columns: 1fr; gap: 18px; } }
+  .info h3 { font-size: 15px; margin: 0 0 8px; font-weight: 620; }
+  .info ul { list-style: none; margin: 0; padding: 0; color: var(--tinta-2); font-size: 15px; }
+  .info li { padding: 3px 0; }
+  .mapa { margin-top: 16px; border-radius: 12px; overflow: hidden;
+          border: 1px solid var(--linea); background: var(--piso); }
+  .mapa iframe { display: block; width: 100%; height: 240px; border: 0; }
+  .comollegar { display: inline-block; margin-top: 10px; font-size: 14.5px;
+                color: var(--primario); font-weight: 580; }
+
+  /* 6-7. reseñas y pie */
+  .resenas a { display: inline-block; border: 1px solid var(--linea); border-radius: 10px;
+               padding: 12px 16px; text-decoration: none; font-size: 15px; }
+  .cierre { margin: 46px 0 0; padding: 34px 0 40px; border-top: 1px solid var(--linea);
+            text-align: center; }
+  .cierre p { color: var(--tinta-2); margin: 0 0 16px; }
+  .creditos { color: var(--tinta-3); font-size: 12.5px; margin-top: 26px; }
+
+  .demo { background: #fef3c7; color: #78350f; font-size: 13px; text-align: center;
+          padding: 10px 16px; line-height: 1.45; }
+  .demo b { font-weight: 650; }
+</style>
+</head>
+<body>
+
+<div class="demo">
+  <b>Demostración</b> — esta página la armó <b>Uptempo</b> con información pública de
+  Beauty Planet. No es su sitio oficial y el negocio no la publicó.
+  Los precios y horarios pueden estar desactualizados.
+</div>
+
+<!-- 1. barra -->
+<div class="barra"><div class="caja">
+  <div class="logo">BP</div>
+  <div class="marca">Beauty Planet</div>
+  <div class="acciones">
+    <a class="secundario" href="/panel" title="Ver el panel de este negocio">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+      <span>Ver el panel</span></a>
+    <a class="wa" href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20un%20turno%20en%20Beauty%20Planet." rel="noopener">Probar</a>
+  </div>
+</div></div>
+
+<!-- 2. encabezado -->
+<header class="caja cabecera">
+  <h1>Depilación definitiva, day spa y estética</h1>
+  <p>Julio Herrera y Obes 1234, Centro</p>
+  <a class="boton-grande" href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20un%20turno%20en%20Beauty%20Planet." rel="noopener">Probar el asistente</a>
+</header>
+
+<!-- 3. fotos -->
+<section class="caja">
+  <div class="fotos">
+    <div class="foto hueco"><div><svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+             <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/>
+             <path d="M21 16l-5-5-4.5 5-2-2L3 19"/></svg>Foto 1</div></div>
+    <div class="foto hueco"><div><svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+             <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/>
+             <path d="M21 16l-5-5-4.5 5-2-2L3 19"/></svg>Foto 2</div></div>
+    <div class="foto hueco"><div><svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+             <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/>
+             <path d="M21 16l-5-5-4.5 5-2-2L3 19"/></svg>Foto 3</div></div>
+    <div class="foto hueco"><div><svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+             <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/>
+             <path d="M21 16l-5-5-4.5 5-2-2L3 19"/></svg>Foto 4</div></div>
+  </div>
+  <p class="pie-fotos">Acá van 3 o 4 fotos del local o de los tratamientos, recortadas a 4:3.</p>
+</section>
+
+<!-- 4. servicios -->
+<section class="caja">
+  <h2>Servicios y precios</h2>
+  <div class="servicio">
+    <div class="datos">
+      <div class="nombre">Depilación Definitiva - Axilas</div>
+      <div class="detalle">30 min · por sesión</div>
+    </div>
+    <div class="precio">$U 790</div>
+    <a class="pedir" rel="noopener"
+       href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20Depilaci%C3%B3n%20Definitiva%20-%20Axilas.">Consultar</a>
+  </div>
+  <div class="servicio">
+    <div class="datos">
+      <div class="nombre">Depilación Definitiva - Bozo</div>
+      <div class="detalle">30 min · por sesión</div>
+    </div>
+    <div class="precio">$U 790</div>
+    <a class="pedir" rel="noopener"
+       href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20Depilaci%C3%B3n%20Definitiva%20-%20Bozo.">Consultar</a>
+  </div>
+  <div class="servicio">
+    <div class="datos">
+      <div class="nombre">Depilación Definitiva - Pierna Entera</div>
+      <div class="detalle">45 min · por sesión</div>
+    </div>
+    <div class="precio">$U 2.300</div>
+    <a class="pedir" rel="noopener"
+       href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20Depilaci%C3%B3n%20Definitiva%20-%20Pierna%20Entera.">Consultar</a>
+  </div>
+  <div class="servicio">
+    <div class="datos">
+      <div class="nombre">Masajes</div>
+      <div class="detalle">30 min</div>
+    </div>
+    <div class="precio">Consultar</div>
+    <a class="pedir" rel="noopener"
+       href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20Masajes.">Consultar</a>
+  </div>
+</section>
+
+<!-- 5. horarios, dirección y mapa -->
+<section class="caja">
+  <h2>Dónde y cuándo</h2>
+  <div class="info">
+    <div>
+      <h3>Horarios</h3>
+      <ul><li>Lunes a Viernes · 09:00 a 19:00</li><li>Sábado · 09:00 a 15:00</li><li>Domingo · cerrado</li></ul>
+    </div>
+    <div>
+      <h3>Dirección</h3>
+      <ul><li>Julio Herrera y Obes 1234, Centro</li></ul>
+      <h3 style="margin-top:14px">Formas de pago</h3>
+      <ul><li>Efectivo, débito y crédito</li></ul>
+    </div>
+  </div>
+  
+</section>
+
+<!-- 6. reseñas -->
+
+
+<!-- 7. cierre -->
+<footer class="caja cierre">
+  <p>Preguntale al asistente lo que quieras. Contesta a cualquier hora.</p>
+  <a class="boton-grande" href="/c/beautyplanet?m=Hola!%20Quiero%20consultar%20por%20un%20turno%20en%20Beauty%20Planet." rel="noopener">Probar el asistente</a>
+  <div class="creditos">Beauty Planet · Julio Herrera y Obes 1234, Centro</div>
+</footer>
+
+</body>
+</html>

@@ -44,6 +44,23 @@ crons = ["*/15 * * * *"]
 # resuelve y la ruta no llega a evaluarse nunca. Con un AAAA a 100::
 # —la direccion de descarte de IPv6— alcanza: no hay servidor detras,
 # el Worker contesta antes.
+#
+# OJO 2 — esto tumbo WhatsApp durante horas el 2026-09-08:
+# definir [[routes]] sin `workers_dev = true` APAGA el subdominio
+# uptempo.uptempoworks.workers.dev. Deja de existir y contesta 1042.
+#
+# Se deja apagado a proposito: una sola URL publica, que es el
+# dominio propio. Pero eso obliga a que TODO lo que apunte al Worker
+# desde afuera use uptempo.uy. Hoy hay una sola cosa asi:
+#
+#   el webhook de Meta  ->  https://uptempo.uy/wa/webhook
+#
+# El sintoma cuando esto se rompe es engañoso: el asistente no
+# contesta, /health da ok, el tail no muestra NADA y en la base no
+# aparece ni el mensaje entrante. Se ve igual que un problema de
+# firma, y no lo es: el mensaje nunca toca el Worker. La forma de
+# distinguirlo en diez segundos es pedirle /health a la URL vieja de
+# workers.dev — si contesta 1042, es esto.
 # ---------------------------------------------------------------
 [[routes]]
 pattern = "*.uptempo.uy/*"

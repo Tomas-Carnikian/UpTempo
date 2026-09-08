@@ -1,3 +1,5 @@
+import { sobreColor, paraTexto, mezclar } from './color';
+
 /**
  * El panel del dueño.
  *
@@ -8,11 +10,30 @@
  *
  * Cinco numeros, y no un sexto. El de fuera de horario va arriba y
  * mas grande porque es literalmente lo que se vende: la consulta de
- * las 22:40 que antes se perdia.
+ * las 22:40 que antes se perdia. Y el panel INFORMA, no argumenta: el
+ * que lo abre ya compro.
+ *
+ * A diferencia de la pagina de turnos y del chat, aca NO entra el
+ * color del cliente. Esta pantalla es de Uptempo, no del negocio, y
+ * es la unica de las tres donde elegimos nosotros. Va celeste: en
+ * Uruguay es el unico color que no es de ningun cuadro.
  */
+
+/** El celeste de Uptempo. Es el color de la casa, no el del cliente. */
+const CELESTE = '#00a8e8';
+
 export function paginaPanel(
   supabaseUrl: string, publishableKey: string, rutaPanel: string,
 ): string {
+  // Derivados con las mismas funciones que usan las otras dos
+  // pantallas: un celeste con texto blanco encima da 2,4:1 y no se
+  // lee, asi que el texto de los botones lo decide el contraste.
+  const sobreCeleste = sobreColor(CELESTE);
+  const celesteTextoClaro = paraTexto(CELESTE, '#f9f9f7');
+  const celesteTextoOscuro = paraTexto(CELESTE, '#0d0d0d');
+  const celestePisoClaro = mezclar(CELESTE, '#f9f9f7', 0.90);
+  const celestePisoOscuro = mezclar(CELESTE, '#0d0d0d', 0.86);
+
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -30,10 +51,13 @@ export function paginaPanel(
     --tinta-3:    #898781;
     --borde:      rgba(11,11,11,0.10);
     --linea:      #e1e0d9;
-    --acento:     #2a78d6;
-    --acento-piso:#eef4fd;
-    --ok:         #006300;
-    --critico:    #d03b3b;
+    --acento:      ${CELESTE};
+    --sobre-acento:${sobreCeleste};
+    --acento-texto:${celesteTextoClaro};
+    --acento-piso: ${celestePisoClaro};
+    --ok:          #006300;
+    --critico:     #d03b3b;
+    --r:           12px;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -45,10 +69,12 @@ export function paginaPanel(
       --tinta-3:    #898781;
       --borde:      rgba(255,255,255,0.10);
       --linea:      #2c2c2a;
-      --acento:     #3987e5;
-      --acento-piso:#152232;
-      --ok:         #0ca30c;
-      --critico:    #e66767;
+      --acento:      ${CELESTE};
+      --sobre-acento:${sobreCeleste};
+      --acento-texto:${celesteTextoOscuro};
+      --acento-piso: ${celestePisoOscuro};
+      --ok:          #4bbd6b;
+      --critico:     #e66767;
     }
   }
   * { box-sizing: border-box; }
@@ -58,42 +84,91 @@ export function paginaPanel(
   }
   .envoltorio { max-width: 900px; margin: 0 auto; padding: 24px 18px 64px; }
 
-  header.barra { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-                 margin-bottom: 6px; }
-  header.barra h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
-  #cambiar-negocio { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px;
-                     border: 1px solid #d6cec6; background: #fff; }
-  .periodo { color: var(--tinta-3); font-size: 14px; }
-  .salir { margin-left: auto; background: none; border: 0; color: var(--tinta-3);
-           font-size: 14px; cursor: pointer; padding: 4px; text-decoration: underline; }
+  /* La cabecera en DOS renglones: el nombre del negocio arriba solo,
+     y abajo el periodo y las acciones. Los cinco elementos en una
+     misma fila con flex-wrap se apilaban de cualquier forma en un
+     celular, y el nombre —que es lo que ubica al que entra— quedaba
+     mezclado con el boton de salir. */
+  header.barra { display: grid; gap: 10px; margin-bottom: 4px; }
+  .titulo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header.barra h1 { font-size: 21px; margin: 0; font-weight: 660; letter-spacing: -.015em; }
+  .es-demo { font-size: 11.5px; font-weight: 600; letter-spacing: .05em;
+             text-transform: uppercase; padding: 3px 8px; border-radius: 5px;
+             background: var(--acento-piso); color: var(--acento-texto); }
+  .herramientas { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  /* Todo lo clickeable de la cabecera comparte forma. Antes cada uno
+     traia sus propios colores escritos a mano —#fff, #d6cec6,
+     #59636e— que en modo oscuro quedaban como un desplegable blanco
+     sobre fondo negro. Ahora todos salen de los mismos tokens. */
+  #cambiar-negocio, .ir, .salir {
+    font: inherit; font-size: 13px; padding: 0 11px; border-radius: 9px;
+    border: 1px solid var(--linea); background: var(--superficie);
+    color: var(--tinta-2); min-height: 36px; cursor: pointer;
+    display: inline-flex; align-items: center; text-decoration: none;
+    transition: background .18s ease, color .18s ease, border-color .18s ease;
+  }
+  #cambiar-negocio:hover, .ir:hover, .salir:hover {
+    color: var(--tinta); border-color: var(--tinta-3);
+  }
+  .salir { margin-left: auto; }
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 3px solid var(--acento-texto); outline-offset: 2px; border-radius: 9px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+  /* Sin text-transform: capitalize, que ponia mayuscula en TODAS las
+     palabras y escribia "Setiembre De 2026". La primera letra la sube
+     el JS, que sabe cual es la primera. */
+  .periodo { color: var(--tinta-3); font-size: 13px; margin-right: 4px; }
 
   .tarjeta { background: var(--superficie); border: 1px solid var(--borde);
-             border-radius: 12px; padding: 18px 20px; }
+             border-radius: var(--r); padding: 18px 20px; }
 
   /* Hero: el número que sostiene la mensualidad. */
-  .hero { margin: 18px 0 14px; background: var(--acento-piso);
-          border-color: color-mix(in srgb, var(--acento) 22%, transparent); }
-  .hero .rotulo { font-size: 14px; color: var(--tinta-2); font-weight: 550; }
-  .hero .cifra { font-size: 68px; line-height: 1.02; font-weight: 680;
-                 letter-spacing: -.03em; margin: 6px 0 2px; }
+  .hero { margin: 18px 0 12px; background: var(--acento-piso);
+          border-color: color-mix(in srgb, var(--acento) 30%, transparent); }
+  .hero .rotulo { font-size: 14px; color: var(--tinta-2); font-weight: 560; }
+  .hero .cifra { font-size: clamp(52px, 13vw, 68px); line-height: 1.02; font-weight: 690;
+                 letter-spacing: -.035em; margin: 4px 0 2px; color: var(--acento-texto);
+                 font-variant-numeric: tabular-nums; }
   .hero .pie { font-size: 14px; color: var(--tinta-2); max-width: 46ch; }
+  /* En pantalla ancha el numero va al lado del texto: solo, dejaba
+     media tarjeta vacia y parecia sin terminar. */
+  @media (min-width: 680px) {
+    .hero { display: grid; grid-template-columns: auto 1fr; column-gap: 26px;
+            align-items: center; }
+    .hero .rotulo { grid-column: 1 / -1; }
+    .hero .cifra { grid-row: 2; margin: 2px 0 0; }
+    .hero .pie { grid-row: 2; }
+  }
 
   .fila { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
           gap: 12px; }
+  .tile { padding: 15px 17px; }
   .tile .rotulo { font-size: 13px; color: var(--tinta-2); }
-  .tile .cifra { font-size: 30px; font-weight: 640; letter-spacing: -.02em; margin-top: 4px; }
-  .tile .nota { font-size: 12px; color: var(--tinta-3); margin-top: 2px; }
+  /* tabular-nums para que 11 y 44 ocupen lo mismo: sin esto las cuatro
+     cifras bailan de ancho cada vez que se recarga. */
+  .tile .cifra { font-size: 30px; font-weight: 650; letter-spacing: -.025em; margin-top: 3px;
+                 font-variant-numeric: tabular-nums; }
+  .tile .nota { font-size: 12px; color: var(--tinta-3); margin-top: 1px; }
 
   h2 { font-size: 15px; font-weight: 620; margin: 30px 0 10px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  /* La tabla scrollea DENTRO de su caja. Sin esto, en un celular la
+     ultima columna quedaba cortada contra el borde y la pagina entera
+     se movia de costado. */
+  .tabla { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 440px; }
   th { text-align: left; font-weight: 550; color: var(--tinta-3); font-size: 12.5px;
        text-transform: uppercase; letter-spacing: .04em; padding: 0 8px 7px 0; }
   td { padding: 9px 8px 9px 0; border-top: 1px solid var(--linea); vertical-align: top; }
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--tinta-2); }
   .marca { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
-  .marca.fuera { color: var(--acento); }
+  .marca.fuera { color: var(--acento-texto); }
   .marca.cancel { color: var(--critico); }
   .marca.ok { color: var(--ok); }
+  .marca.neutro { color: var(--tinta-2); }
   .vacio { color: var(--tinta-3); font-size: 14px; padding: 14px 0; }
   .privacidad { color: var(--tinta-3); font-size: 12.5px; margin-top: 10px; }
 
@@ -104,9 +179,11 @@ export function paginaPanel(
   .login input { width: 100%; padding: 11px 13px; font-size: 15px;
                  border: 1px solid var(--linea); border-radius: 9px;
                  background: var(--superficie); color: var(--tinta); }
-  .login button { width: 100%; margin-top: 10px; padding: 11px; font-size: 15px;
-                  font-weight: 550; border: 0; border-radius: 9px;
-                  background: var(--acento); color: #fff; cursor: pointer; }
+  .login button { width: 100%; margin-top: 10px; padding: 12px; font-size: 15px;
+                  font-weight: 600; border: 0; border-radius: 9px; min-height: 46px;
+                  background: var(--acento); color: var(--sobre-acento); cursor: pointer;
+                  transition: filter .18s ease; }
+  .login button:hover { filter: brightness(1.08); }
   .login button:disabled { opacity: .55; cursor: default; }
   .aviso { margin-top: 14px; font-size: 14px; color: var(--tinta-2); }
   .aviso.mal { color: var(--critico); }
@@ -126,10 +203,16 @@ export function paginaPanel(
 
 <div id="pantalla-panel" class="envoltorio" hidden>
   <header class="barra">
-    <h1 id="negocio">…</h1>
-    <select id="cambiar-negocio" hidden></select>
-    <span class="periodo" id="periodo"></span>
-    <button class="salir" id="salir">salir</button>
+    <div class="titulo">
+      <h1 id="negocio">…</h1>
+      <span class="es-demo" id="etiqueta-demo" hidden>demo</span>
+    </div>
+    <div class="herramientas">
+      <span class="periodo" id="periodo"></span>
+      <select id="cambiar-negocio" hidden aria-label="Cambiar de negocio"></select>
+      <a id="ver-pagina" class="ir" hidden target="_blank" rel="noopener">Ver la página</a>
+      <button class="salir" id="salir">Salir</button>
+    </div>
   </header>
 
   <section class="tarjeta hero">
@@ -159,10 +242,10 @@ export function paginaPanel(
   </section>
 
   <h2>Últimos turnos</h2>
-  <div id="tabla-turnos"></div>
+  <div id="tabla-turnos" class="tabla"></div>
 
   <h2>Última actividad</h2>
-  <div id="tabla-actividad"></div>
+  <div id="tabla-actividad" class="tabla"></div>
   <p class="privacidad">Se muestran solo los datos del turno y la hora de cada consulta.
   El texto de las conversaciones no se muestra acá.</p>
 </div>
@@ -236,6 +319,7 @@ export function paginaPanel(
     if (!ms) return '–';
     return ms < 60000 ? (ms / 1000).toFixed(1) + ' s' : Math.round(ms / 60000) + ' min';
   }
+  function mayus(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m];
@@ -248,16 +332,25 @@ export function paginaPanel(
     reprogramacion: 'Reprogramación', error: 'Error'
   };
   var CANAL = { whatsapp: 'WhatsApp', web: 'Web', pagina: 'Página', cron: 'Automático' };
+  // El dueño estaba leyendo el valor crudo de la base: "no_asistio",
+  // "agendado". Es su pantalla, no la consola de nadie.
+  var ESTADO = {
+    agendado: 'Agendado', confirmado: 'Confirmado', cancelado: 'Cancelado',
+    reprogramado: 'Reprogramado', no_asistio: 'No asistió', cumplido: 'Cumplido'
+  };
 
   function tablaTurnos(filas, tz) {
     if (!filas || !filas.length) return '<p class="vacio">Todavía no hay turnos este mes.</p>';
     return '<table><thead><tr><th>Cuándo</th><th>Servicio</th><th>Estado</th><th>Vino de</th>' +
       '</tr></thead><tbody>' + filas.map(function (t) {
-        var cls = t.estado === 'cancelado' || t.estado === 'no_asistio' ? 'cancel' : 'ok';
-        var icono = cls === 'cancel' ? '✕' : '✓';
+        // El tilde verde es "ya pasó y salió bien". Un turno de mañana
+        // todavia no es ninguna de las dos cosas: va neutro.
+        var cls = (t.estado === 'cancelado' || t.estado === 'no_asistio') ? 'cancel'
+                : t.estado === 'cumplido' ? 'ok' : 'neutro';
+        var icono = cls === 'cancel' ? '✕' : cls === 'ok' ? '✓' : '•';
         return '<tr><td class="num">' + cuando(t.inicio, tz) + '</td><td>' +
           esc(t.servicio_nombre) + '</td><td><span class="marca ' + cls + '">' + icono + ' ' +
-          esc(t.estado) + '</span></td><td>' + esc(CANAL[t.origen] || t.origen || '–') +
+          esc(ESTADO[t.estado] || t.estado) + '</span></td><td>' + esc(CANAL[t.origen] || t.origen || '–') +
           '</td></tr>';
       }).join('') + '</tbody></table>';
   }
@@ -287,7 +380,7 @@ export function paginaPanel(
     // literal. Uno solo, hasta en un comentario, corta el literal y el
     // build falla con un "Expected ; but found ..." que apunta a
     // cualquier lado menos al backtick.
-    var negocios = await api('clientes?select=id,nombre,timezone,estado&order=nombre');
+    var negocios = await api('clientes?select=id,nombre,slug,timezone,estado&order=nombre');
     if (!negocios) { mostrarLogin(); return; }
     if (!negocios.length) {
       mostrarLogin('Ese correo no tiene ningún negocio asociado. Escribinos y lo damos de alta.');
@@ -303,8 +396,12 @@ export function paginaPanel(
     try { localStorage.setItem('uptempo_panel_negocio', cliente.id); } catch (e) {}
 
     var tz = cliente.timezone || 'America/Montevideo';
-    $('negocio').textContent = cliente.nombre +
-      (cliente.estado === 'demo' ? ' (demo)' : '');
+    $('negocio').textContent = cliente.nombre;
+    $('etiqueta-demo').hidden = cliente.estado !== 'demo';
+
+    var ver = $('ver-pagina');
+    ver.href = '/p/' + cliente.slug;
+    ver.hidden = false;
 
     var selector = $('cambiar-negocio');
     if (negocios.length > 1) {
@@ -326,7 +423,7 @@ export function paginaPanel(
 
     var m = await api('panel_metricas_mes?select=*' + soloEste + '&limit=1');
     var d = (m && m[0]) || {};
-    $('periodo').textContent = d.mes_desde ? mes(d.mes_desde, tz) : '';
+    $('periodo').textContent = d.mes_desde ? mayus(mes(d.mes_desde, tz)) : '';
     $('m-fuera').textContent = d.consultas_fuera_horario || 0;
     $('m-turnos').textContent = d.turnos_agendados || 0;
     $('m-consultas').textContent = d.consultas_atendidas || 0;

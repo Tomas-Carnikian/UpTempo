@@ -368,6 +368,14 @@ export async function purgarDemos(env: Env, ahora = new Date()): Promise<Resulta
  * Es el texto base: Tomas lo edita si quiere. Lo que no puede es
  * contener nada que no sea verdad.
  */
+/**
+ * El asunto, cuando el primer contacto va por mail en vez de WhatsApp.
+ * Nombra al negocio y dice que es: un asunto vago en frio no se abre.
+ */
+export function asuntoDeContacto(ficha: Ficha): string {
+  return `Una demo del asistente de WhatsApp para ${ficha.nombre}`;
+}
+
 export function mensajeDeContacto(ficha: Ficha, slug: string, interes = ''): string {
   const url = `${slug}.uptempo.uy`;
   // El mas barato de los que tienen precio: en depilacion es la zona

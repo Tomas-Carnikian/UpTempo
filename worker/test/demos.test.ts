@@ -9,7 +9,7 @@
  * La regla de "nunca tocar un cliente que no sea demo" no se prueba acá
  * porque necesita la base; se verifica a mano contra clinicasole.
  */
-import { slugValido, demosAPurgar, type CandidataPurga } from '../src/demos';
+import { slugValido, demosAPurgar, asuntoDeContacto, type CandidataPurga } from '../src/demos';
 import { slugificar, nombreDeNegocio } from '../src/extraccion';
 import { numeroWa } from '../src/pagina-turnos';
 import { horariosDePlaces } from '../src/places';
@@ -204,6 +204,11 @@ function main() {
     mensajeDeContacto(fichaCon([]), 'x'));
   comprobar('sin servicios igual sale un mensaje mandable',
     mensajeDeContacto(fichaCon([]), 'x').includes('x.uptempo.uy'));
+
+  comprobar('el asunto nombra al negocio',
+    asuntoDeContacto(fichaCon([])).includes('Beauty Planet'), asuntoDeContacto(fichaCon([])));
+  comprobar('el asunto dice qué es',
+    /demo|asistente/i.test(asuntoDeContacto(fichaCon([]))));
 
   console.log('\n— el número de WhatsApp de la página —');
   const conTel = (t: string | null) => ({ cliente: { telefono_display: t } } as unknown as Negocio);
