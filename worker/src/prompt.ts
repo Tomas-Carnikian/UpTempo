@@ -34,12 +34,15 @@ function listaServicios(n: Negocio): string {
  *   [0] todo lo estable (reglas + base de conocimiento + servicios),
  *       marcado con cache_control. Es el 70-80% de los tokens de
  *       entrada y se cobra a 1/10 cuando pega la cache.
- *   [1] la fecha y hora de ahora, que cambia siempre y va afuera.
+ *   [1] la fecha y hora de ahora, que cambia siempre, y el contexto
+ *       de ESTA conversacion (el turno de la persona, lo ultimo que le
+ *       escribimos). Todo eso cambia con cada conversacion y por eso
+ *       va afuera de la cache.
  *
  * Sin esta division el costo por cliente se va de USD 2,80 a USD 6+
  * y se rompe el techo.
  */
-export function construirSystem(n: Negocio): BloqueTexto[] {
+export function construirSystem(n: Negocio, contexto?: string): BloqueTexto[] {
   const c = n.cliente;
 
   const estable = `Sos la recepcionista de ${c.nombre}${c.direccion ? `, en ${c.direccion}` : ''}.
@@ -109,8 +112,10 @@ ${listaServicios(n)}
 ${n.baseConocimiento}
 </base_de_conocimiento>`;
 
+  const ahora = `Ahora mismo es ${ahoraLocal(c.timezone)} en ${c.timezone}.`;
+
   return [
     { type: 'text', text: estable, cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: `Ahora mismo es ${ahoraLocal(c.timezone)} en ${c.timezone}.` },
+    { type: 'text', text: contexto ? `${ahora}\n\n${contexto}` : ahora },
   ];
 }

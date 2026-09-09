@@ -10,7 +10,9 @@
  * como decirle "no mires ningún calendario". Esa parte se prueba en
  * vivo contra un calendario real, que es la única forma seria.
  */
-import { buscarServicio, buscarHuecos, estaLibre, localAUTC, formatearHueco, cargarContexto, FRANJAS } from '../src/agenda';
+import { buscarServicio, buscarHuecos, estaLibre, localAUTC, formatearHueco, cargarContexto, FRANJAS,
+         buscarTurnoVigente, sobreLaHora, ANTICIPACION_H, yaPaso } from '../src/agenda';
+import { limpiarMotivo } from '../src/plantillas';
 import { construirSystem } from '../src/prompt';
 import { hashIdentificador } from '../src/db';
 import { esClaveSecreta } from '../src/config';
@@ -319,6 +321,178 @@ async function main() {
   comprobar('ofrece agendar una sola vez', /una sola vez/i.test(sys[0].text));
   comprobar('prohíbe el saludo de cartel', /Bienvenido a Clínica Solé/.test(sys[0].text)
     && /es un cartel, no una persona/.test(sys[0].text));
+
+  // ── Encontrar el turno del que se está hablando ───────────────
+  //
+  // El caso real del 8/9: el turno se agendó dictando "095023935" y
+  // el recordatorio llegó por WhatsApp, donde Meta manda
+  // "59895023935". Dos hashes para la misma persona. Buscar por
+  // conversación lo encuentra igual.
+  console.log('\n— buscar el turno vigente —');
+
+  const AHORA = new Date();
+  const futuro = (h: number) => new Date(AHORA.getTime() + h * 3600_000).toISOString();
+  const pasado = (h: number) => new Date(AHORA.getTime() - h * 3600_000).toISOString();
+
+  const CONV = 'conv-de-la-clienta';
+  const CLIENTE = 'cli-sole';
+
+  function sbTurnos(filas: any[]) {
+    let pedidos = 0;
+    const api = {
+      pedidos: () => pedidos,
+      from(tabla: string) {
+        const f: any = { eq: {} as Record<string, any>, in: {} as Record<string, any[]>, gte: '' };
+        const q: any = {
+          select: () => q,
+          eq: (col: string, val: any) => { f.eq[col] = val; return q; },
+          in: (col: string, val: any[]) => { f.in[col] = val; return q; },
+          gte: (_col: string, val: string) => { f.gte = val; return q; },
+          order: () => q,
+          limit: () => q,
+          maybeSingle: async () => {
+            pedidos++;
+            if (tabla !== 'turnos') return { data: null };
+            const halladas = filas
+              .filter(r => Object.entries(f.eq).every(([c, v]) => r[c] === v))
+              .filter(r => Object.entries(f.in).every(([c, v]) => (v as any[]).includes(r[c])))
+              .filter(r => !f.gte || r.inicio >= f.gte)
+              .sort((a, b) => a.inicio.localeCompare(b.inicio));
+            return { data: halladas[0] ?? null };
+          },
+        };
+        return q;
+      },
+    };
+    return api;
+  }
+
+  const turnoDeLaConv = {
+    id: 't-conv', cliente_id: CLIENTE, conversacion_id: CONV,
+    telefono_hash: 'hash-viejo-del-dictado', estado: 'agendado',
+    inicio: futuro(20), servicio_id: 's1', servicio_nombre: 'Limpieza facial profunda',
+    calendar_event_id: null,
+  };
+
+  let sbT = sbTurnos([turnoDeLaConv]);
+  let tv = await buscarTurnoVigente(sbT as any, CLIENTE,
+    { conversacionId: CONV, hashes: ['hash-de-whatsapp'] });
+  comprobar('lo encuentra por conversación aunque el hash del teléfono no coincida',
+    tv?.id === 't-conv', String(tv?.id));
+  comprobar('con la conversación alcanza: no busca por teléfono', sbT.pedidos() === 1,
+    String(sbT.pedidos()));
+
+  // Turno agendado por el chat web y retomado por WhatsApp: la
+  // conversación es otra, el teléfono es lo único que los une.
+  const turnoDeLaWeb = { ...turnoDeLaConv, id: 't-web', conversacion_id: 'conv-web',
+    telefono_hash: 'hash-de-whatsapp' };
+  sbT = sbTurnos([turnoDeLaWeb]);
+  tv = await buscarTurnoVigente(sbT as any, CLIENTE,
+    { conversacionId: CONV, hashes: ['hash-de-whatsapp'] });
+  comprobar('si por conversación no aparece, cae al teléfono', tv?.id === 't-web', String(tv?.id));
+  comprobar('y para eso sí hace las dos consultas', sbT.pedidos() === 2, String(sbT.pedidos()));
+
+  tv = await buscarTurnoVigente(sbTurnos([turnoDeLaConv]) as any, CLIENTE,
+    { conversacionId: null, hashes: ['no-es-ninguno'] });
+  comprobar('sin conversación ni hash que coincida, no inventa', tv === null);
+
+  tv = await buscarTurnoVigente(sbTurnos([turnoDeLaConv]) as any, CLIENTE,
+    { conversacionId: CONV, hashes: [] });
+  comprobar('sin teléfono, la conversación sola sirve', tv?.id === 't-conv');
+
+  // Aislamiento: el turno es de otra clínica.
+  tv = await buscarTurnoVigente(sbTurnos([turnoDeLaConv]) as any, 'otra-clinica',
+    { conversacionId: CONV, hashes: ['hash-viejo-del-dictado'] });
+  comprobar('nunca cruza el turno de otro cliente', tv === null);
+
+  // Un turno que ya pasó no es "el próximo".
+  tv = await buscarTurnoVigente(
+    sbTurnos([{ ...turnoDeLaConv, inicio: pasado(2) }]) as any, CLIENTE,
+    { conversacionId: CONV, hashes: [] });
+  comprobar('un turno que ya pasó no cuenta', tv === null);
+
+  // Cancelado tampoco.
+  tv = await buscarTurnoVigente(
+    sbTurnos([{ ...turnoDeLaConv, estado: 'cancelado' }]) as any, CLIENTE,
+    { conversacionId: CONV, hashes: [] });
+  comprobar('un turno cancelado no cuenta', tv === null);
+
+  // Confirmar tiene que VER el ya confirmado para contestar bien si
+  // tocan el botón dos veces; reprogramar también.
+  tv = await buscarTurnoVigente(
+    sbTurnos([{ ...turnoDeLaConv, estado: 'confirmado' }]) as any, CLIENTE,
+    { conversacionId: CONV, hashes: [] });
+  comprobar('un turno ya confirmado sí se encuentra', tv?.estado === 'confirmado');
+
+  // Dos turnos futuros: gana el más próximo.
+  tv = await buscarTurnoVigente(sbTurnos([
+    { ...turnoDeLaConv, id: 't-lejos', inicio: futuro(200) },
+    { ...turnoDeLaConv, id: 't-cerca', inicio: futuro(5) },
+  ]) as any, CLIENTE, { conversacionId: CONV, hashes: [] });
+  comprobar('con dos turnos futuros agarra el más próximo', tv?.id === 't-cerca', String(tv?.id));
+
+  // El orden de los teléfonos importa: primero el que dijo el modelo
+  // (el turno puede estar a nombre de otra persona).
+  sbT = sbTurnos([
+    { ...turnoDeLaConv, id: 't-hija', conversacion_id: null, telefono_hash: 'hash-hija' },
+    { ...turnoDeLaConv, id: 't-madre', conversacion_id: null, telefono_hash: 'hash-madre',
+      inicio: futuro(3) },
+  ]);
+  tv = await buscarTurnoVigente(sbT as any, CLIENTE,
+    { conversacionId: null, hashes: ['hash-hija', 'hash-madre'] });
+  comprobar('respeta el orden de los teléfonos: primero el que dijo el modelo',
+    tv?.id === 't-hija', String(tv?.id));
+
+  comprobar('trae las columnas que hacen falta para reprogramar',
+    typeof tv?.servicio_id === 'string' && typeof tv?.servicio_nombre === 'string'
+    && 'calendar_event_id' in (tv as any));
+
+  // ── Ofrecer y tomar no son lo mismo ───────────────────────────
+  //
+  // No se OFRECE nada dentro de las próximas 2 h: empujar a alguien a
+  // un turno que probablemente no pueda cumplir es un mal servicio.
+  // Pero si lo PIDE, se toma: ya sabe que puede ir, y negárselo es
+  // perder un turno real por una regla nuestra. La asimetría es a
+  // propósito.
+  console.log('\n— ofrecer vs. tomar —');
+
+  const ahoraFijo = new Date('2026-09-09T13:07:00Z'); // 10:07 en Montevideo
+  const enHoras = (h: number) => new Date(ahoraFijo.getTime() + h * 3600_000);
+
+  comprobar('lo que está dentro de las 2 h no se ofrece',
+    sobreLaHora(enHoras(1.9), ahoraFijo) === true);
+  comprobar('justo en el límite ya se ofrece',
+    sobreLaHora(enHoras(ANTICIPACION_H), ahoraFijo) === false);
+  comprobar('los huecos que salen respetan esa regla',
+    h1.every(x => !sobreLaHora(x.inicio)), h1.map(x => hhmm(x.inicio)).join(' '));
+  comprobar('pero pedir dentro de esa franja NO está prohibido: no pasó',
+    yaPaso(enHoras(1.9), ahoraFijo) === false);
+
+  // Lo que sí es imposible: agendar en el pasado. estaLibre mira el
+  // horario de atención y los choques, no el reloj.
+  comprobar('una hora que ya pasó no se puede', yaPaso(enHoras(-1), ahoraFijo) === true);
+  comprobar('"hoy a las 9" siendo las 10:07',
+    yaPaso(new Date('2026-09-09T12:00:00Z'), ahoraFijo) === true);
+  comprobar('ahora mismo tampoco', yaPaso(ahoraFijo, ahoraFijo) === true);
+  comprobar('dentro de un minuto sí', yaPaso(enHoras(1 / 60), ahoraFijo) === false);
+  comprobar('mañana, obviamente', yaPaso(enHoras(24), ahoraFijo) === false);
+
+  // ── El motivo del aviso de derivación ─────────────────────────
+  console.log('\n— el motivo del aviso —');
+  comprobar('saca el punto final para que no queden dos',
+    limpiarMotivo('no se encuentra turno futuro asociado a su número.')
+      === 'no se encuentra turno futuro asociado a su número');
+  comprobar('no toca un motivo sin punto',
+    limpiarMotivo('pidió hablar con alguien') === 'pidió hablar con alguien');
+  comprobar('saca varios puntos y los puntos suspensivos',
+    limpiarMotivo('no sé qué hacer...') === 'no sé qué hacer');
+  comprobar('aplasta los saltos de línea (Meta rechaza la variable)',
+    limpiarMotivo('pidió\n\nreprogramar  el turno') === 'pidió reprogramar el turno');
+  comprobar('un motivo vacío no manda una variable vacía',
+    limpiarMotivo('   ') === 'el asistente no pudo resolverlo');
+  comprobar('recorta a 200 y no deja un punto colgando',
+    (() => { const l = limpiarMotivo('a'.repeat(199) + '. y sigue'); return l.length <= 200
+      && !l.endsWith('.'); })());
 
   console.log(`\n${ok} bien, ${mal} mal\n`);
   process.exit(mal === 0 ? 0 : 1);

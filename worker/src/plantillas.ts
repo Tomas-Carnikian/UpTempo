@@ -145,6 +145,25 @@ export async function crearPlantillas(env: Env, wabaId: string): Promise<AltaPla
  * NUNCA tira una excepcion hacia afuera: que falle el aviso no puede
  * tumbar la respuesta a la clienta, que es lo importante.
  */
+/**
+ * El motivo entra en "Motivo: {{2}}." — la plantilla ya pone el punto.
+ * El modelo escribe el motivo como una oracion terminada, asi que sin
+ * esto sale "…asociado a su número.." con dos puntos. Meta ademas
+ * rechaza una variable con saltos de linea o espacios dobles, y eso no
+ * falla en el momento sino cuando ya hay alguien esperando el aviso.
+ */
+export function limpiarMotivo(motivo: string): string {
+  // El recorte va ANTES de sacar el punto: si no, cortar en 200 puede
+  // dejar el punto de una oracion interna justo al final y volvemos al
+  // "..".
+  const limpio = (motivo ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200)
+    .replace(/[.\s]+$/, '');
+  return limpio || 'el asistente no pudo resolverlo';
+}
+
 export async function avisarDerivacion(
   env: Env, negocio: Negocio, conversacion: Conversacion, motivo: string,
 ): Promise<void> {
@@ -158,7 +177,7 @@ export async function avisarDerivacion(
       idioma: IDIOMA,
       variables: [
         c.nombre,
-        motivo.slice(0, 200),
+        limpiarMotivo(motivo),
         conversacion.telefono ?? conversacion.nombre_contacto ?? 'el chat de la web',
       ],
     });

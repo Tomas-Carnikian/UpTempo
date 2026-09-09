@@ -6,9 +6,9 @@ import type {
 import { db, hashIdentificador, hashTelefono } from './db';
 import { construirSystem } from './prompt';
 import { HERRAMIENTAS, ejecutar } from './herramientas';
-import { vinoDeLaPagina } from './whatsapp';
-import { BTN_CONFIRMO, avisarDerivacion } from './plantillas';
-import { formatearHueco } from './agenda';
+import { vinoDeLaPagina, demasiadoViejo, EDAD_MAXIMA_MIN } from './whatsapp';
+import { BTN_CONFIRMO, BTN_CAMBIO, avisarDerivacion } from './plantillas';
+import { formatearHueco, buscarTurnoVigente, type TurnoVigente } from './agenda';
 
 const MAX_VUELTAS = 5;       // tope del loop de herramientas
 const HISTORIAL = 20;        // mensajes de contexto que se recuperan
@@ -19,6 +19,9 @@ const TEXTO_FOTO =
   'Perdón, por acá no puedo ver fotos. Ya le paso tu mensaje a alguien del equipo y en un rato te escriben.';
 const TEXTO_AUDIO =
   '¿Me lo podés escribir? Por acá no puedo escuchar los audios.';
+/** "Necesito cambiarlo" cuando ya hay alguien del equipo en el tema. */
+const TEXTO_CAMBIO_DERIVADA =
+  'Perfecto, en un rato te escribe alguien del equipo para acomodarlo.';
 
 
 /**
@@ -76,12 +79,18 @@ export async function responder(
     .update({ ultimo_mensaje_en: new Date().toISOString() })
     .eq('id', conversacion.id);
 
-  // ── Silencio tras derivar. El bot no le pisa la respuesta a una persona.
-  const silenciada = conversacion.estado === 'derivada'
-    && conversacion.silenciado_hasta !== null
-    && new Date(conversacion.silenciado_hasta) > new Date();
-  if (silenciada) {
-    return { texto: null, conversacionId: conversacion.id, derivada: true, latenciaMs: Date.now() - t0 };
+  // ── Mensaje viejo: se guarda, no se contesta ──────────────────
+  // El historial queda completo —hace falta para entender la proxima
+  // conversacion— pero no sale una respuesta a destiempo. NO se
+  // registra evento: una cola de reintentos de Meta es un problema
+  // nuestro, no del negocio, y veinte filas de "Error" en el panel del
+  // dueño despues de una caida no le sirven para nada. Queda en el log,
+  // que es donde se mira esto.
+  if (demasiadoViejo(entrada.enviadoEn)) {
+    const min = Math.round((Date.now() - entrada.enviadoEn!.getTime()) / 60_000);
+    console.error('[wa] mensaje de hace', min, 'minutos: se guarda y no se contesta.',
+      negocio.cliente.slug, '· tope', EDAD_MAXIMA_MIN, 'min');
+    return { texto: null, conversacionId: conversacion.id, derivada: false, latenciaMs: Date.now() - t0 };
   }
 
   // ── Reglas duras que NO delegamos en el modelo ────────────────
@@ -90,8 +99,35 @@ export async function responder(
   // conversacion: se resuelve sin llamar al modelo, contesta al
   // instante y no cuesta nada. Es la interaccion mas frecuente que va
   // a tener el sistema y seria absurdo pagarla.
+  //
+  // Va ANTES del silencio a proposito. El silencio existe para que el
+  // bot no le pise la respuesta a alguien del equipo que ya esta
+  // escribiendo; no para dejar sin respuesta a una persona que toco un
+  // boton de un mensaje que le mandamos NOSOTROS. El cron manda el
+  // recordatorio igual aunque la conversacion este derivada —el turno
+  // sigue existiendo—, asi que este caso pasa solo. Y "confirmar" es un
+  // hecho, no una charla: una linea que no puede contradecir a nadie.
   if (entrada.payloadBoton === BTN_CONFIRMO) {
     return confirmarTurno(sb, env, negocio, conversacion, t0);
+  }
+
+  // ── Silencio tras derivar. El bot no le pisa la respuesta a una persona.
+  const silenciada = conversacion.estado === 'derivada'
+    && conversacion.silenciado_hasta !== null
+    && new Date(conversacion.silenciado_hasta) > new Date();
+  if (silenciada) {
+    // "Necesito cambiarlo" con una persona del equipo ya metida en el
+    // tema: contestar con el modelo seria justamente pisarla. Pero el
+    // boton tampoco puede quedar sin respuesta. Una linea fija, sin
+    // modelo, que no contradice nada de lo que la persona este por
+    // decir. No se manda un aviso nuevo al dueño: ya se le mando uno
+    // por esta conversacion, y para eso existe silencio_derivacion_h.
+    if (entrada.payloadBoton === BTN_CAMBIO) {
+      await guardarRespuesta(sb, conversacion.id, TEXTO_CAMBIO_DERIVADA);
+      return { texto: TEXTO_CAMBIO_DERIVADA, conversacionId: conversacion.id,
+               derivada: true, latenciaMs: Date.now() - t0 };
+    }
+    return { texto: null, conversacionId: conversacion.id, derivada: true, latenciaMs: Date.now() - t0 };
   }
 
   // Una foto de una lesion es el caso mas delicado del rubro. Que el
@@ -107,9 +143,21 @@ export async function responder(
   }
 
   // ── El modelo ─────────────────────────────────────────────────
-  const historial = await cargarHistorial(sb, conversacion.id);
+  const { mensajes: historial, huerfanos } = await cargarHistorial(sb, conversacion.id);
+
+  // De que turno habla esta persona. Se lo damos servido: preguntarle
+  // "¿de que servicio era tu turno?" a alguien a quien le acabamos de
+  // escribir "tu turno de Peeling quimico" es lo que convence a
+  // cualquiera de que del otro lado no hay nadie.
+  const turno = esWhatsapp
+    ? await buscarTurnoVigente(sb, negocio.cliente.id,
+        { conversacionId: conversacion.id, hashes: [hash] })
+    : await buscarTurnoVigente(sb, negocio.cliente.id,
+        { conversacionId: conversacion.id });
+
   const mensajes: MensajeApi[] = [...historial, { role: 'user', content: entrada.texto }];
-  const system = construirSystem(negocio);
+  const system = construirSystem(
+    negocio, contextoDeConversacion(turno, huerfanos, negocio.cliente.timezone));
 
   let textoFinal = '';
   let derivo = false;
@@ -261,7 +309,20 @@ async function obtenerConversacion(
   return { conversacion: data as Conversacion, esNueva: true };
 }
 
-async function cargarHistorial(sb: SupabaseClient, conversacionId: string): Promise<MensajeApi[]> {
+export interface Historial {
+  /** Lo que se le manda al modelo como conversacion. */
+  mensajes: MensajeApi[];
+  /**
+   * Mensajes NUESTROS que quedaron adelante de todo, sin ningun
+   * mensaje de la persona antes. La API los rechaza en el historial,
+   * pero son contexto y no se tiran: van al system.
+   */
+  huerfanos: string[];
+}
+
+export async function cargarHistorial(
+  sb: SupabaseClient, conversacionId: string,
+): Promise<Historial> {
   const { data } = await sb.from('mensajes')
     .select('rol, texto, tipo')
     .eq('conversacion_id', conversacionId)
@@ -279,9 +340,57 @@ async function cargarHistorial(sb: SupabaseClient, conversacionId: string): Prom
     const texto = (f.texto as string | null) ?? (f.tipo === 'imagen' ? '[foto]' : '[mensaje sin texto]');
     salida.push({ role: rol === 'usuario' ? 'user' : 'assistant', content: texto });
   }
-  // La API exige alternancia y que el primero sea del usuario.
-  while (salida.length && salida[0].role !== 'user') salida.shift();
-  return salida.filter((m, i) => i === 0 || m.role !== salida[i - 1].role);
+
+  // La API exige que el primero sea del usuario. Lo nuestro que quede
+  // adelante NO se tira: se aparta y va al system como contexto.
+  //
+  // Esto no es un caso raro: es EL caso del recordatorio. Si pasaron
+  // mas de 12 h del ultimo mensaje, el cron abre una conversacion
+  // nueva y el recordatorio es lo unico que hay en ella. Tirarlo
+  // dejaba al modelo leyendo "Necesito cambiarlo" sin la menor idea de
+  // que turno, y preguntando de que servicio era un turno que nosotros
+  // le acabamos de nombrar.
+  const huerfanos: string[] = [];
+  while (salida.length && salida[0].role !== 'user') {
+    const m = salida.shift()!;
+    if (typeof m.content === 'string' && m.content.trim()) huerfanos.push(m.content);
+  }
+
+  const mensajes = salida.filter((m, i) => i === 0 || m.role !== salida[i - 1].role);
+  return { mensajes, huerfanos };
+}
+
+/**
+ * Lo que el modelo tiene que saber de ESTA conversacion y que no esta
+ * en el historial. Va en el bloque variable del system, nunca en el
+ * cacheado: si entrara al bloque estable, cada conversacion tendria su
+ * propio prompt y la cache no pegaria nunca (ver prompt.ts).
+ */
+export function contextoDeConversacion(
+  turno: TurnoVigente | null, huerfanos: string[], tz: string,
+): string | undefined {
+  const partes: string[] = [];
+
+  if (turno) {
+    partes.push(
+      `Esta persona tiene un turno: ${turno.servicio_nombre}, ` +
+      `${formatearHueco(new Date(turno.inicio), tz)}` +
+      `${turno.estado === 'confirmado' ? ', ya confirmado' : ''}. ` +
+      'Cuando diga "mi turno", o pida cambiarlo o cancelarlo, es ese: ya sabés cuál es y de ' +
+      'qué servicio es, así que NO se lo preguntes. Usá reprogramar_turno o cancelar_turno ' +
+      'directamente. No lo menciones si no viene al caso, y si pide un turno nuevo y distinto, ' +
+      'agendáselo igual.',
+    );
+  }
+
+  if (huerfanos.length) {
+    partes.push(
+      'Lo último que le escribiste vos, y a lo que te está contestando:\n' +
+      huerfanos.map(t => `«${t}»`).join('\n'),
+    );
+  }
+
+  return partes.length ? partes.join('\n\n') : undefined;
 }
 
 async function guardarRespuesta(sb: SupabaseClient, conversacionId: string, texto: string) {
@@ -322,31 +431,33 @@ async function motivoDerivacion(sb: SupabaseClient, conversacionId: string): Pro
 /**
  * "Confirmar" del recordatorio, resuelto sin modelo.
  *
- * Busca el proximo turno de ese telefono y lo pasa a confirmado. Si no
- * hay ninguno (lo cancelaron, ya paso), contesta algo neutro en vez de
- * un error: la persona toco un boton, no hizo nada mal.
+ * Busca el proximo turno —primero por conversacion, despues por
+ * telefono— y lo pasa a confirmado. Si no hay ninguno (lo cancelaron,
+ * ya paso), contesta algo neutro en vez de un error: la persona toco
+ * un boton, no hizo nada mal.
+ *
+ * Se buscan tambien los ya confirmados a proposito. Tocar el boton dos
+ * veces es lo mas normal del mundo —el recordatorio queda arriba en el
+ * chat— y la segunda vez tiene que volver a decir cuando es el turno,
+ * no caer en un "gracias por avisar" que suena a que se perdio algo.
  */
 async function confirmarTurno(
   sb: SupabaseClient, env: Env, negocio: Negocio, conversacion: Conversacion, t0: number,
 ): Promise<Respuesta> {
-  const tel = conversacion.telefono ?? '';
+  const tel = (conversacion.telefono ?? '').trim();
   let texto = 'Listo, gracias por avisar.';
 
-  if (tel) {
-    const hash = await hashTelefono(env, tel);
-    const { data: turno } = await sb.from('turnos')
-      .select('id, inicio')
-      .eq('cliente_id', negocio.cliente.id)
-      .eq('telefono_hash', hash)
-      .eq('estado', 'agendado')
-      .gte('inicio', new Date().toISOString())
-      .order('inicio').limit(1).maybeSingle();
+  const turno = await buscarTurnoVigente(sb, negocio.cliente.id, {
+    conversacionId: conversacion.id,
+    hashes: tel ? [await hashTelefono(env, tel)] : [],
+  });
 
-    if (turno) {
+  if (turno) {
+    if (turno.estado === 'agendado') {
       await sb.from('turnos').update({ estado: 'confirmado' }).eq('id', turno.id);
-      texto = `Listo, quedó confirmado. Te esperamos ` +
-              `${formatearHueco(new Date(turno.inicio as string), negocio.cliente.timezone)}.`;
     }
+    texto = `Listo, quedó confirmado. Te esperamos ` +
+            `${formatearHueco(new Date(turno.inicio), negocio.cliente.timezone)}.`;
   }
 
   await guardarRespuesta(sb, conversacion.id, texto);

@@ -7,7 +7,10 @@
  * que tiene que rechazar, y que la atribución de la página no se
  * dispare de más.
  */
-import { parsearWebhook, firmaValida, vinoDeLaPagina, verificarWebhook } from '../src/whatsapp';
+import {
+  parsearWebhook, firmaValida, vinoDeLaPagina, verificarWebhook,
+  fechaDeMeta, demasiadoViejo, EDAD_MAXIMA_MIN,
+} from '../src/whatsapp';
 import type { Env } from '../src/tipos';
 
 let ok = 0, mal = 0;
@@ -69,6 +72,9 @@ async function main() {
   comprobar('trae el nombre del contacto', m[0]?.mensaje.nombreContacto === 'Ana Pérez');
   comprobar('guarda el id para deduplicar',
     m[0]?.mensaje.waMessageId === 'wamid.HBgLNTk4OTkxMTEyMjIVAgAS');
+  comprobar('guarda cuándo lo mandó la persona',
+    m[0]?.mensaje.enviadoEn?.getTime() === 1757000000 * 1000,
+    String(m[0]?.mensaje.enviadoEn));
 
   const img = parsearWebhook(webhookTexto('', 'image', { image: { id: 'media-123', caption: 'mirá' } }));
   comprobar('una imagen se marca como imagen', img[0]?.mensaje.tipo === 'imagen');
@@ -90,6 +96,34 @@ async function main() {
   comprobar('los avisos de entrega se ignoran', est.length === 0, String(est.length));
   comprobar('un webhook vacío no rompe', parsearWebhook({}).length === 0);
   comprobar('un webhook basura no rompe', parsearWebhook({ entry: [{ changes: [{}] }] }).length === 0);
+
+  console.log('\n— mensajes viejos (cola de reintentos de Meta) —');
+  comprobar('el timestamp de Meta viene en segundos',
+    fechaDeMeta('1757000000')?.toISOString() === new Date(1757000000 * 1000).toISOString(),
+    String(fechaDeMeta('1757000000')));
+  comprobar('acepta el timestamp como número', fechaDeMeta(1757000000) instanceof Date);
+  comprobar('sin timestamp, undefined', fechaDeMeta(undefined) === undefined);
+  comprobar('un timestamp basura no rompe', fechaDeMeta('mañana') === undefined);
+  comprobar('un timestamp en cero no cuenta', fechaDeMeta(0) === undefined);
+  comprobar('un timestamp negativo no cuenta', fechaDeMeta(-5) === undefined);
+
+  const ahora = new Date('2026-09-08T20:22:00Z');
+  const hace = (min: number) => new Date(ahora.getTime() - min * 60_000);
+  comprobar('recién llegado: se contesta', !demasiadoViejo(hace(0), ahora));
+  comprobar('un minuto tarde: se contesta', !demasiadoViejo(hace(1), ahora));
+  comprobar('justo en el límite: se contesta',
+    !demasiadoViejo(hace(EDAD_MAXIMA_MIN), ahora));
+  comprobar('un minuto pasado el límite: no se contesta',
+    demasiadoViejo(hace(EDAD_MAXIMA_MIN + 1), ahora));
+  // El caso real del 8/9: el mensaje de las 18:37 contestado a las 20:22.
+  comprobar('el de hace dos horas: no se contesta', demasiadoViejo(hace(105), ahora));
+  comprobar('sin fecha se contesta igual (no perdemos mensajes)',
+    !demasiadoViejo(undefined, ahora));
+  comprobar('una fecha inválida se trata como sin fecha',
+    !demasiadoViejo(new Date('x'), ahora));
+  // Reloj de Meta adelantado: un futuro cercano no es viejo.
+  comprobar('un mensaje del futuro no es viejo', !demasiadoViejo(hace(-3), ahora));
+  comprobar('el límite se puede ajustar', demasiadoViejo(hace(3), ahora, 2));
 
   console.log('\n— firma —');
   const cuerpo = JSON.stringify(webhookTexto('hola'));

@@ -16,7 +16,42 @@ import { hayGoogle, ocupadoEnCalendar } from './google';
 
 const PASO_MIN = 15;       // granularidad con que se buscan huecos
 const SEPARACION_MIN = 45; // piso: dos opciones nunca salen mas juntas que esto
-const ANTICIPACION_MS = 2 * 3600_000; // no se ofrece nada dentro de las proximas 2 h
+/**
+ * Margen dentro del cual NO se OFRECE un horario.
+ *
+ * Ojo con la palabra: no se ofrece, pero sí se toma. Ofrecerle a
+ * alguien un turno dentro de una hora es empujarlo a algo que
+ * probablemente no pueda; que lo PIDA es otra cosa completamente
+ * distinta —ya sabe que puede ir— y ahi negarselo es perder un turno
+ * real por una regla nuestra.
+ *
+ * Esa asimetria es a proposito. `buscarHuecos` la respeta; `estaLibre`
+ * no la mira, y esta bien que no la mire.
+ */
+export const ANTICIPACION_H = 2;
+const ANTICIPACION_MS = ANTICIPACION_H * 3600_000;
+
+/**
+ * ¿Este horario cae dentro del margen que no se ofrece? Lo usa la
+ * prueba para verificar que los huecos que salen de `buscarHuecos`
+ * respeten la regla; no es una puerta que haya que cerrar al agendar.
+ */
+export function sobreLaHora(inicio: Date, ahora = new Date()): boolean {
+  return inicio.getTime() < ahora.getTime() + ANTICIPACION_MS;
+}
+
+/**
+ * ¿Este horario ya pasó?
+ *
+ * Esto no es politica sino imposibilidad, y por eso si vale para las
+ * tres puertas. `estaLibre` mira el horario de atencion y los choques,
+ * no el reloj: sin esta guarda, "dame turno hoy a las 9" siendo las
+ * 10:07 agenda un turno en el pasado, entra al calendario del negocio
+ * y no lo detecta nadie.
+ */
+export function yaPaso(inicio: Date, ahora = new Date()): boolean {
+  return inicio.getTime() <= ahora.getTime();
+}
 
 export interface Hueco { inicio: Date; fin: Date; }
 interface Tramo { desde: number; hasta: number; }
@@ -289,6 +324,71 @@ export async function estaLibre(
   if (!dentro) return false;
 
   return !choca(ctx, inicio.getTime(), inicio.getTime() + duracion * 60_000);
+}
+
+// ── Encontrar EL turno del que se está hablando ─────────────────
+/**
+ * El turno vigente mas proximo de una persona.
+ *
+ * Se busca en dos pasadas y el orden importa:
+ *
+ * 1. Por CONVERSACION. Es exacto: el turno se agendo en este mismo
+ *    hilo, y el recordatorio se mando a este mismo hilo. Si la persona
+ *    toca "Confirmar" o pide cambiarlo, es de este turno que habla.
+ * 2. Por TELEFONO, como hasta ahora. Cubre lo que la conversacion no
+ *    puede: un turno agendado por el chat web y retomado por WhatsApp,
+ *    o una madre que reserva a nombre de la hija y despues escribe.
+ *
+ * Por que la conversacion va primero: `telefono_hash` es el hash del
+ * numero TAL COMO SE ESCRIBIO. Un turno agendado dictando "095023935"
+ * y una conversacion de WhatsApp, donde Meta manda "59895023935",
+ * dan hashes distintos para la misma persona. Normalizamos al escribir
+ * (ver normalizarTelefono en db.ts), pero las filas anteriores a ese
+ * arreglo quedaron con el hash viejo y ninguna migracion las puede
+ * recalcular: el hash lleva pepper y el pepper solo lo tiene el Worker.
+ * Buscar por conversacion las encuentra igual, sin tocar la base.
+ *
+ * `estados` se pasa desde afuera porque no es lo mismo confirmar que
+ * reprogramar: confirmar tiene que poder ver un turno ya confirmado
+ * para contestar bien si tocan el boton dos veces.
+ */
+export interface TurnoVigente {
+  id: string;
+  servicio_id: string | null;
+  servicio_nombre: string;
+  inicio: string;
+  estado: string;
+  calendar_event_id: string | null;
+}
+
+const COLUMNAS_TURNO = 'id, servicio_id, servicio_nombre, inicio, estado, calendar_event_id';
+
+export async function buscarTurnoVigente(
+  sb: SupabaseClient, clienteId: string,
+  llaves: { conversacionId?: string | null; hashes?: string[] },
+  estados: string[] = ['agendado', 'confirmado'],
+): Promise<TurnoVigente | null> {
+  const desde = new Date().toISOString();
+
+  const base = () => sb.from('turnos')
+    .select(COLUMNAS_TURNO)
+    .eq('cliente_id', clienteId)
+    .in('estado', estados)
+    .gte('inicio', desde)
+    .order('inicio').limit(1);
+
+  if (llaves.conversacionId) {
+    const { data } = await base().eq('conversacion_id', llaves.conversacionId).maybeSingle();
+    if (data) return data as unknown as TurnoVigente;
+  }
+
+  for (const hash of llaves.hashes ?? []) {
+    if (!hash) continue;
+    const { data } = await base().eq('telefono_hash', hash).maybeSingle();
+    if (data) return data as unknown as TurnoVigente;
+  }
+
+  return null;
 }
 
 /** 'jueves 11 de septiembre a las 15:00' */

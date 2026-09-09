@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Env, Negocio, Conversacion } from './tipos';
 import { hashTelefono, normalizarTelefono } from './db';
-import { buscarServicio, buscarHuecos, estaLibre, formatearHueco, localAUTC, FRANJAS } from './agenda';
+import { buscarServicio, buscarHuecos, estaLibre, formatearHueco, localAUTC, FRANJAS,
+         buscarTurnoVigente, yaPaso } from './agenda';
 import { fechaISOLocal } from './prompt';
 import { hayGoogle, crearEvento, moverEvento, borrarEvento } from './google';
 
@@ -166,7 +167,10 @@ async function ejecutarInterno(
         const mm = horaPedida[2] ?? '00';
         const exacta = localAUTC(desde, `${hh}:${mm}`, tz);
         try {
-          if (await estaLibre(sb, env, negocio, servicio, exacta)) {
+          // Una hora que ya paso nunca esta "libre", aunque caiga
+          // dentro del horario de atencion. Se cae al buscador de
+          // abajo, que ofrece lo mas cercano de verdad.
+          if (!yaPaso(exacta) && await estaLibre(sb, env, negocio, servicio, exacta)) {
             return { salida: `SÍ, ${formatearHueco(exacta, tz)} está libre para "${servicio.nombre}". ` +
                              `Confirmaselo y pedile los datos. fecha_hora exacta: ${aFechaHoraLocal(exacta, tz)}` };
           }
@@ -247,6 +251,11 @@ async function ejecutarInterno(
       // horario y que la persona lo confirmo pudieron pasar minutos, y
       // en ese rato otra clienta pudo tomarlo o el dueño pudo anotar
       // algo a mano en su calendario.
+      if (yaPaso(inicio)) {
+        return { salida: 'Esa hora ya pasó. Fijate bien en que dia y hora estamos, y ' +
+                         'consulta disponibilidad antes de ofrecer nada.' };
+      }
+
       try {
         if (!(await estaLibre(sb, env, negocio, servicio, inicio))) {
           return { salida: 'Ese horario ya no esta libre. Volve a consultar disponibilidad y ofrece otro.' };
@@ -316,32 +325,33 @@ async function ejecutarInterno(
     // ---------------------------------------------------------------
     case 'reprogramar_turno':
     case 'cancelar_turno': {
-      // Por WhatsApp el telefono ya lo sabemos: es el numero desde el
-      // que escribe. Preguntarselo a alguien que nos esta escribiendo
-      // por WhatsApp es la clase de detalle que delata que del otro
-      // lado hay un formulario y no una persona. Igual se prueba
-      // primero el que haya dicho el modelo: el turno puede estar a
-      // nombre de otra (una madre que reserva para su hija).
+      // Primero se busca por conversacion: es el hilo donde se agendo
+      // el turno y donde se mando el recordatorio, asi que es de ese
+      // turno que la persona esta hablando.
+      //
+      // Despues por telefono. Por WhatsApp ya lo sabemos —es el numero
+      // desde el que escribe— y preguntarselo a alguien que nos esta
+      // escribiendo por WhatsApp es la clase de detalle que delata que
+      // del otro lado hay un formulario y no una persona. Igual se
+      // prueba primero el que haya dicho el modelo: el turno puede
+      // estar a nombre de otra (una madre que reserva para su hija).
       const candidatos = [...new Set(
         [String(args.telefono ?? '').trim(), (conversacion.telefono ?? '').trim()].filter(Boolean),
       )];
-      if (!candidatos.length) {
-        return { salida: 'No tengo el telefono. Pediselo antes de seguir.' };
-      }
+      const hashes: string[] = [];
+      for (const tel of candidatos) hashes.push(await hashTelefono(env, tel));
 
-      let turno: any = null;
-      for (const tel of candidatos) {
-        const { data } = await sb.from('turnos')
-          .select('id, servicio_nombre, inicio, servicio_id, calendar_event_id')
-          .eq('cliente_id', negocio.cliente.id)
-          .eq('telefono_hash', await hashTelefono(env, tel))
-          .in('estado', ['agendado', 'confirmado'])
-          .gte('inicio', new Date().toISOString())
-          .order('inicio').limit(1).maybeSingle();
-        if (data) { turno = data; break; }
-      }
+      const turno = await buscarTurnoVigente(
+        sb, negocio.cliente.id, { conversacionId: conversacion.id, hashes },
+      );
 
-      if (!turno) return { salida: 'No encuentro ningun turno futuro con ese telefono. Deriva a una persona.' };
+      if (!turno) {
+        return {
+          salida: candidatos.length
+            ? 'No encuentro ningun turno futuro de esta persona. Deriva a una persona.'
+            : 'No encuentro ningun turno futuro y no tengo el telefono. Pediselo antes de seguir.',
+        };
+      }
 
       const calendarId = conCalendario(ctx);
       const eventoId = turno.calendar_event_id as string | null;
@@ -366,6 +376,11 @@ async function ejecutarInterno(
                     ?? buscarServicio(negocio, turno.servicio_nombre as string);
       if (!servicio) return { salida: 'No reconozco el servicio del turno. Deriva a una persona.' };
 
+      if (yaPaso(nueva)) {
+        return { salida: 'Esa hora ya pasó, asi que el turno NO se movio: sigue donde estaba. ' +
+                         'Fijate en que dia y hora estamos y consulta disponibilidad.' };
+      }
+
       try {
         if (!(await estaLibre(sb, env, negocio, servicio, nueva))) {
           return { salida: 'Ese horario no esta libre. Consulta disponibilidad y ofrece otro.' };
@@ -383,8 +398,14 @@ async function ejecutarInterno(
           return { salida: 'No pude moverlo en la agenda del negocio. Usa derivar_a_humano.' };
         }
       }
+      // Vuelve a 'agendado' aunque estuviera confirmado: la persona
+      // confirmo OTRO horario, no este. Dejarlo en 'confirmado' le
+      // muestra al dueño una confirmacion que nadie dio. Con
+      // recordatorio_enviado_en en null, el cron le manda el
+      // recordatorio nuevo y ahi lo confirma de verdad.
       await sb.from('turnos').update({
-        inicio: nueva.toISOString(), fin: finNuevo.toISOString(), recordatorio_enviado_en: null,
+        inicio: nueva.toISOString(), fin: finNuevo.toISOString(),
+        estado: 'agendado', recordatorio_enviado_en: null,
       }).eq('id', turno.id);
       return { salida: `Turno reprogramado para ${formatearHueco(nueva, tz)}.` };
     }

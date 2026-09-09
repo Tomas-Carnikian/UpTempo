@@ -111,6 +111,41 @@ export interface EntranteWa {
   mediaId?: string;
 }
 
+/**
+ * El `timestamp` de Meta, en segundos, a Date. undefined si no vino o
+ * es basura: sin fecha, el mensaje se trata como recien llegado.
+ */
+export function fechaDeMeta(ts: unknown): Date | undefined {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return new Date(n * 1000);
+}
+
+/**
+ * ¿Este mensaje es tan viejo que contestarlo es peor que no hacerlo?
+ *
+ * Meta reintenta durante HORAS lo que no pudo entregar. El 8/9, con el
+ * webhook apuntando a una URL muerta, se acumularon tres mensajes; al
+ * arreglar la URL, Meta vacio la cola de a poco y el asistente los
+ * contesto a las 19:27 y a las 20:22 — uno y dos horas tarde. El codigo
+ * hizo lo correcto y el resultado igual estuvo mal: a una clienta le
+ * habria llegado "¿Para que servicio te interesa el turno?" dos horas
+ * despues, sin contexto, y parece un bot roto.
+ *
+ * La idempotencia evita contestar DOS VECES el mismo mensaje; esto
+ * evita contestar TARDE uno viejo. Son cosas distintas.
+ *
+ * Quince minutos: los retrasos normales de Meta son de segundos.
+ */
+export const EDAD_MAXIMA_MIN = 15;
+
+export function demasiadoViejo(
+  enviadoEn: Date | undefined, ahora = new Date(), minutos = EDAD_MAXIMA_MIN,
+): boolean {
+  if (!enviadoEn || Number.isNaN(enviadoEn.getTime())) return false;
+  return (ahora.getTime() - enviadoEn.getTime()) > minutos * 60_000;
+}
+
 const TIPOS: Record<string, TipoMensaje> = {
   text: 'texto', audio: 'audio', voice: 'audio', image: 'imagen',
   video: 'otro', sticker: 'imagen', document: 'documento',
@@ -165,6 +200,7 @@ export function parsearWebhook(cuerpo: any): EntranteWa[] {
             identificador: String(m?.from ?? ''),
             nombreContacto: nombres.get(String(m?.from ?? '')),
             waMessageId: String(m?.id ?? ''),
+            enviadoEn: fechaDeMeta(m?.timestamp),
             payloadBoton: payloadBoton ? String(payloadBoton).slice(0, 128) : undefined,
           },
         });

@@ -101,6 +101,12 @@ export interface MensajeEntrante {
   /** Solo WhatsApp. Es la llave de idempotencia. */
   waMessageId?: string;
   /**
+   * Solo WhatsApp: cuando lo mando la persona, segun Meta — que no es
+   * cuando nos llego. Meta reintenta durante horas lo que no pudo
+   * entregar, asi que un mensaje puede aparecer viejisimo.
+   */
+  enviadoEn?: Date;
+  /**
    * Solo WhatsApp. Si la persona toco un boton de una plantilla, esto
    * trae el payload que le pusimos al mandarla (CONFIRMO, CAMBIO).
    * Es lo unico que se puede leer sin ambiguedad: el texto visible del
