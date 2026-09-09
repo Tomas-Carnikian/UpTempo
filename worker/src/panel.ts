@@ -1,4 +1,4 @@
-import { sobreColor, paraTexto, mezclar } from './color';
+import { sobreColor, paraTexto, mezclar, CELESTE } from './color';
 
 /**
  * El panel del dueño.
@@ -18,9 +18,6 @@ import { sobreColor, paraTexto, mezclar } from './color';
  * es la unica de las tres donde elegimos nosotros. Va celeste: en
  * Uruguay es el unico color que no es de ningun cuadro.
  */
-
-/** El celeste de Uptempo. Es el color de la casa, no el del cliente. */
-const CELESTE = '#00a8e8';
 
 export function paginaPanel(
   supabaseUrl: string, publishableKey: string, rutaPanel: string,

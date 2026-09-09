@@ -7,7 +7,7 @@
     "dev": "wrangler dev -c wrangler.dev.toml",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/pagina.test.ts && tsx test/agenda.test.ts && tsx test/whatsapp.test.ts && tsx test/recordatorios.test.ts && tsx test/extraccion.test.ts && tsx test/demos.test.ts && tsx test/guarda.test.ts",
+    "test": "tsx test/pagina.test.ts && tsx test/marca.test.ts && tsx test/agenda.test.ts && tsx test/whatsapp.test.ts && tsx test/recordatorios.test.ts && tsx test/extraccion.test.ts && tsx test/demos.test.ts && tsx test/guarda.test.ts",
     "tail": "wrangler tail --format pretty"
   },
   "dependencies": {

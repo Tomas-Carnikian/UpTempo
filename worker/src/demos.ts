@@ -1,3 +1,4 @@
+import { CELESTE } from './color';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Env } from './tipos';
 import { db, invalidarCache } from './db';
@@ -63,7 +64,7 @@ async function slugLibre(
   for (let i = 0; i < 20; i++) {
     const slug = i === 0 ? base : slugValido(`${base}${i + 1}`);
     const { data } = await sb.from('clientes')
-      .select('id, slug, nombre, estado').eq('slug', slug).maybeSingle();
+      .select('id, slug, nombre, estado, color_primario').eq('slug', slug).maybeSingle();
 
     if (!data) return { slug, existente: null };
 
@@ -97,11 +98,37 @@ export async function insertarFicha(env: Env, ficha: Ficha): Promise<ResultadoIn
   const { slug, existente } = await slugLibre(sb, base, ficha.nombre);
   if (slug !== base) avisos.push(`"${base}" ya era de otro negocio; esta demo quedó como "${slug}"`);
 
+  // ── El color de marca ─────────────────────────────────────────
+  // Se escribe SOLO si nadie lo eligio todavia: o la fila es nueva, o
+  // tiene alguno de los valores que pone el sistema cuando no encontro
+  // nada. Asi una correccion hecha a mano —mirar el logo y poner el
+  // color bien— sobrevive a que se vuelva a correr el lote. La maquina
+  // completa lo que falta; no corrige a la persona.
+  //
+  // Y cuando el sitio no tiene un color detectable, la demo NO queda
+  // gris: queda con el celeste de Uptempo. Un gris pizarra en una
+  // pagina se lee como "sin terminar"; el celeste se lee como una
+  // decision, y en una pagina que arriba de todo dice que la armo
+  // Uptempo, que sea nuestro color es honesto.
+  const SIN_ELEGIR = new Set([CELESTE, '#1f2937']);
+  const colorNuevo = ficha.color_primario ?? null;
+  const colorViejo = (existente?.color_primario as string | undefined) ?? null;
+  const sinElegir = !existente || !colorViejo || SIN_ELEGIR.has(colorViejo.toLowerCase());
+
+  if (!sinElegir && colorNuevo && colorNuevo !== colorViejo) {
+    avisos.push(`el color quedó en ${colorViejo}: ya había uno cargado y no se pisa ` +
+                `(el sitio ahora dice ${colorNuevo})`);
+  }
+  if (sinElegir && !colorNuevo) {
+    avisos.push(`sin color de marca (${ficha.origen.color ?? 'no se buscó'}): ` +
+                `queda el celeste de Uptempo`);
+  }
+
   // ── clientes ──────────────────────────────────────────────────
-  // Solo los campos que salen de la ficha. wa_phone_number_id,
-  // calendar_id y los colores NO se tocan: si esta demo ya se conecto
-  // a algo, volver a correr el generador no se lo puede desarmar.
-  const fila = {
+  // Solo los campos que salen de la ficha. wa_phone_number_id y
+  // calendar_id NO se tocan: si esta demo ya se conecto a algo,
+  // volver a correr el generador no se lo puede desarmar.
+  const fila: Record<string, unknown> = {
     slug,
     nombre: ficha.nombre,
     rubro: ficha.rubro,
@@ -118,6 +145,7 @@ export async function insertarFicha(env: Env, ficha: Ficha): Promise<ResultadoIn
     maps_url: ficha.maps_url ?? null,
     actualizado_en: new Date().toISOString(),
   };
+  if (sinElegir) fila.color_primario = colorNuevo ?? CELESTE;
 
   let clienteId: string;
   if (existente) {

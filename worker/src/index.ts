@@ -12,7 +12,7 @@ import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
 import { crearPlantillas, estadoPlantillas } from './plantillas';
-import { extraerFicha } from './extraccion';
+import { extraerFicha, slugificar, nombreDeNegocio, esRedSocial } from './extraccion';
 import {
   insertarFicha, listarDemos, borrarDemo, purgarDemos, mensajeDeContacto, asuntoDeContacto,
 } from './demos';
@@ -246,16 +246,50 @@ app.post('/admin/demos/lote', async c => {
     return c.text(e?.message ?? 'error', 502);
   }
 
-  const tanda = lugares.slice(saltar, saltar + max);
   const hechas: any[] = [];
   const fallaron: any[] = [];
+  const repetidos: any[] = [];
 
-  for (const lugar of tanda) {
+  /**
+   * Una cadena aparece en Places una vez POR SUCURSAL, y las sucursales
+   * se llaman todas igual. En el primer lote real, DepiLife salio dos
+   * veces —la home y la pagina del WTC— y las dos cayeron en el slug
+   * "depilife": la segunda le pasó por encima a la primera. De cinco
+   * lugares del lote salieron cuatro negocios, y se pagaron dos
+   * llamadas al modelo y diez bajadas de paginas para tener una demo.
+   *
+   * El slug se puede adivinar ANTES de gastar nada, porque sale del
+   * nombre que ya devolvio Places. El repetido no cuenta contra `max`:
+   * el lugar libre lo usa el siguiente de la lista, asi un lote de
+   * cinco devuelve cinco negocios distintos.
+   */
+  const yaEnEsteLote = new Set<string>();
+  let i = saltar;
+
+  while (hechas.length + fallaron.length < max && i < lugares.length) {
+    const lugar = lugares[i++];
+
+    const slugPrevisto = slugificar(nombreDeNegocio(lugar.nombre));
+    if (yaEnEsteLote.has(slugPrevisto)) {
+      repetidos.push({
+        nombre: lugar.nombre, sitio: lugar.sitio,
+        motivo: `otra sucursal de "${slugPrevisto}", que ya salió en este lote`,
+      });
+      continue;
+    }
+    yaEnEsteLote.add(slugPrevisto);
+
     try {
       // El sitio web es opcional: sin el sale una ficha sin servicios,
       // que es el caso de la clinica que solo tiene Instagram.
       let web = null;
-      if (lugar.sitio) {
+      let avisoRed: string | null = null;
+      if (lugar.sitio && esRedSocial(lugar.sitio)) {
+        // Ni se intenta: son cinco bajadas y una llamada al modelo para
+        // sacar cero servicios y el color de Meta.
+        avisoRed = `el "sitio" de Places es una red social (${lugar.sitio}), no una web: ` +
+                   `no se extrajo nada. Pegá la bio a mano con /admin/demos {"url":…,"extra":…}`;
+      } else if (lugar.sitio) {
         web = await extraerFicha(c.env, { url: lugar.sitio }).catch((e: any) => {
           console.log('[lote] sin web utilizable', lugar.nombre, e?.message);
           return null;
@@ -265,6 +299,7 @@ app.post('/admin/demos/lote', async c => {
       const r = await insertarFicha(c.env, ficha);
       hechas.push({
         ...r,
+        avisos: avisoRed ? [avisoRed, ...r.avisos] : r.avisos,
         url: `${r.slug}.uptempo.uy`,
         // Sobre los que quedaron INSERTADOS, no sobre los de la ficha:
         // insertarFicha descarta los repetidos y si no, el resumen
@@ -280,13 +315,17 @@ app.post('/admin/demos/lote', async c => {
     }
   }
 
+  // Cuantos lugares de la lista se consumieron, no cuantas demos
+  // salieron: con esto `siguiente` no vuelve a mandar una sucursal que
+  // ya se saltó.
+  const consumidos = i - saltar;
+
   return c.json({
     busqueda,
     encontrados: lugares.length,
-    procesados: `${saltar + 1}-${saltar + tanda.length} de ${lugares.length}`,
-    siguiente: saltar + tanda.length < lugares.length
-      ? { busqueda, max, saltar: saltar + tanda.length } : null,
-    hechas, fallaron,
+    procesados: `${saltar + 1}-${saltar + consumidos} de ${lugares.length}`,
+    siguiente: i < lugares.length ? { busqueda, max, saltar: i } : null,
+    hechas, fallaron, repetidos,
   });
 });
 

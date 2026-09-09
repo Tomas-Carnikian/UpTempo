@@ -1,4 +1,5 @@
 import type { Env } from './tipos';
+import { colorDeMarca } from './marca';
 
 /**
  * Paso 9.1 — de una URL a una FICHA.
@@ -61,6 +62,13 @@ export interface Ficha {
   lon?: number | null;
   google_place_id?: string | null;
   maps_url?: string | null;
+  /**
+   * El color de marca, sacado del CSS del propio sitio. null cuando el
+   * sitio no tiene ninguno que parezca una marca — y entonces la demo
+   * queda con el color por defecto, que es lo correcto: inventarle un
+   * color a una clinica es igual de grave que inventarle un precio.
+   */
+  color_primario?: string | null;
   /** Para revisar a ojo que salio bien y por que. */
   origen: {
     url: string | null;
@@ -68,9 +76,40 @@ export interface Ficha {
     paginas: string[];
     caracteres: number;
     precios_descartados: string[];
+    /** De donde salio el color, o por que no salio ninguno. */
+    color?: string;
     /** place_id, cuando la ficha paso por Places. */
     places?: string;
   };
+}
+
+/**
+ * Un perfil de una red social NO es el sitio del negocio.
+ *
+ * Places devuelve como "sitio web" lo que el negocio cargo en su ficha
+ * de Maps, y muchisimas clinicas ponen ahi su Instagram porque web no
+ * tienen. Bajarlo es peor que inutil:
+ *
+ *  - Instagram contesta un muro de login, asi que salen cero servicios
+ *    —eso ya lo sabiamos y era el motivo de no scrapearlo—,
+ *  - y desde el 9.6, ademas, el detector de color le saca el color a
+ *    INSTAGRAM. A studioamelie le quedo #0095f6, el azul de Meta,
+ *    publicado en una pagina con el nombre de la clinica. Es el mismo
+ *    error que inventar un precio, solo que mas dificil de notar.
+ *
+ * Se trata como "sin web". La bio se pega a mano con `extra`.
+ */
+const REDES = [
+  'instagram.com', 'facebook.com', 'fb.com', 'm.me', 'wa.me', 'api.whatsapp.com',
+  'tiktok.com', 'twitter.com', 'x.com', 'linktr.ee', 'linktree.com', 'youtube.com',
+  'linkedin.com', 'pinterest.com', 'threads.net', 'bit.ly',
+];
+
+export function esRedSocial(url: string): boolean {
+  try {
+    const h = new URL(String(url)).hostname.toLowerCase().replace(/^www\./, '');
+    return REDES.some(r => h === r || h.endsWith('.' + r));
+  } catch { return false; }
 }
 
 // ── 1. Bajar y limpiar ──────────────────────────────────────────
@@ -274,7 +313,7 @@ export function juntarPaginas(paginas: Array<{ url: string; texto: string }>): s
  */
 export async function bajarSitios(
   url: string,
-): Promise<{ texto: string; paginas: string[]; titulo: string | null }> {
+): Promise<{ texto: string; paginas: string[]; titulo: string | null; htmls: string[] }> {
   const principal = await bajarSitio(url);
   const titulo = tituloDe(principal);
   const internas = linksInternos(principal, url);
@@ -283,10 +322,14 @@ export async function bajarSitios(
     try { return { url: u, html: await bajarSitio(u) }; } catch { return null; }
   }));
 
-  const paginas = [{ url, html: principal }, ...otras.filter((x): x is { url: string; html: string } => x !== null)]
-    .map(p => ({ url: p.url, texto: limpiarHtml(p.html).slice(0, MAX_POR_PAGINA) }));
+  const crudas = [{ url, html: principal },
+                  ...otras.filter((x): x is { url: string; html: string } => x !== null)];
+  const paginas = crudas.map(p => ({ url: p.url, texto: limpiarHtml(p.html).slice(0, MAX_POR_PAGINA) }));
 
-  return { texto: juntarPaginas(paginas), paginas: paginas.map(p => p.url), titulo };
+  // El HTML sin limpiar sale aparte, solo para buscarle el color: el
+  // texto que va al modelo ya no tiene una sola linea de CSS.
+  return { texto: juntarPaginas(paginas), paginas: paginas.map(p => p.url), titulo,
+           htmls: crudas.map(p => p.html) };
 }
 
 // ── 2. Slug ─────────────────────────────────────────────────────
@@ -552,14 +595,25 @@ export async function extraerFicha(env: Env, entrada: EntradaExtraccion): Promis
   let paginas: string[] = [];
   let titulo: string | null = null;
 
+  let htmls: string[] = [];
+
+  if (entrada.url && esRedSocial(entrada.url)) {
+    throw new Error(
+      'Eso es un perfil de una red social, no el sitio del negocio. No se baja: Instagram ' +
+      'devuelve un muro de login (cero servicios) y su CSS le pondría a la clínica el color ' +
+      'de Meta. Pegá la bio y dos o tres posts en "extra".');
+  }
+
   if (entrada.html) {
     limpio = limpiarHtml(entrada.html);
     titulo = tituloDe(entrada.html);
+    htmls = [entrada.html];
   } else if (entrada.url) {
     const r = await bajarSitios(entrada.url);
     limpio = r.texto;
     paginas = r.paginas;
     titulo = r.titulo;
+    htmls = r.htmls;
   }
 
   const extra = (entrada.extra ?? '').trim().slice(0, 8000);
@@ -581,7 +635,13 @@ export async function extraerFicha(env: Env, entrada: EntradaExtraccion): Promis
   ].filter(Boolean).join('\n');
 
   const cruda = await pedirFicha(env, cabecera ? `${cabecera}\n\n${limpio}` : limpio);
-  return armarFicha(cruda, limpio, entrada.url ?? null, paginas);
+  const ficha = armarFicha(cruda, limpio, entrada.url ?? null, paginas);
+
+  // El color NO pasa por el modelo: sale del CSS crudo, determinista.
+  const marca = colorDeMarca(htmls);
+  ficha.color_primario = marca.color;
+  ficha.origen.color = `${marca.fuente}: ${marca.nota}`;
+  return ficha;
 }
 
 /**

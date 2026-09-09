@@ -1,5 +1,5 @@
 import type { Negocio, Servicio } from './tipos';
-import { sobreColor, paraTexto, mezclar } from './color';
+import { sobreColor, paraTexto, mezclar, CELESTE } from './color';
 
 /**
  * La pagina de turnos. Plantilla fija, siete secciones, siempre en
@@ -199,7 +199,7 @@ export function paginaTurnos(n: Negocio, rutaChat = '', rutaPanel = ''): string 
   // ── El color del cliente, resuelto para cada uso ────────────────
   // Un solo hex entra; salen cuatro valores que no rompen el contraste
   // en ningun tema. Ver color.ts para el por que.
-  const marca = c.color_primario || '#2f4858';
+  const marca = c.color_primario || CELESTE;
   const sobreMarca = sobreColor(marca);
   const marcaTextoClaro = paraTexto(marca, '#ffffff');
   const marcaTextoOscuro = paraTexto(marca, '#12161a');

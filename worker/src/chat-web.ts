@@ -1,5 +1,5 @@
 import type { Negocio } from './tipos';
-import { sobreColor, paraTexto, mezclar } from './color';
+import { sobreColor, paraTexto, mezclar, CELESTE } from './color';
 import { estadoApertura, iniciales } from './pagina-turnos';
 
 /**
@@ -61,7 +61,7 @@ export function paginaChat(
   // El color del cliente resuelto para cada uso. Sin esto, el dorado o
   // el rosa pastel de una clinica de estetica dejan la cabecera entera
   // ilegible: es texto blanco sobre un fondo claro.
-  const marca = c.color_primario || '#2f4858';
+  const marca = c.color_primario || CELESTE;
   const sobreMarca = sobreColor(marca);
   const marcaTextoClaro = paraTexto(marca, '#ffffff');
   const marcaTextoOscuro = paraTexto(marca, '#0f1417');

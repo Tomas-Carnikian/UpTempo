@@ -20,6 +20,20 @@
  * con el piso en 4,5:1 para texto normal.
  */
 
+/**
+ * El celeste de Uptempo. Es el color de la casa, y ademas el valor por
+ * defecto cuando no se le pudo sacar el color a la web del negocio.
+ *
+ * Antes ese defecto era un gris pizarra, que en una pagina se lee como
+ * "sin terminar". El celeste se lee como una decision — y en Uruguay
+ * es el unico color que no es de ningun cuadro.
+ *
+ * Si varias demos comparten este celeste no es un accidente como lo
+ * era el rosa de WordPress: es nuestro color, en una pagina que arriba
+ * de todo dice que la armo Uptempo.
+ */
+export const CELESTE = '#00a8e8';
+
 type Rgb = [number, number, number];
 
 const CLARO: Rgb = [255, 255, 255];
