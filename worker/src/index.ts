@@ -8,6 +8,7 @@ import { responder } from './cerebro';
 import { paginaChat } from './chat-web';
 import { paginaPanel } from './panel';
 import { paginaTurnos } from './pagina-turnos';
+import { paginaWeb, faviconSvg } from './web';
 import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
@@ -421,27 +422,51 @@ function panelDe(c: any, ruta: string) {
   return c.html(paginaPanel(c.env.SUPABASE_URL.trim(), key, ruta));
 }
 
+// ── La web de la empresa ────────────────────────────────────────
 /**
- * Puente para el enlace del correo.
+ * uptempo.uy y uptempo.uy/en. Reemplaza a la página PUENTE, que era
+ * un renglón de texto con un link al panel.
  *
- * Los tokens vuelven en el fragmento (#access_token=…), que el
- * navegador NO manda al servidor: desde acá no hay forma de saber que
- * la visita trae una sesión. Si por lo que sea el enlace cae en la
- * raíz en vez de en /panel, esta página lo reenvía con el fragmento
- * intacto en vez de dejar al dueño mirando un texto que no entiende.
+ * DOS COSAS QUE NO SE PUEDEN PERDER AL TOCAR ESTO:
+ *
+ * 1. El rescate del enlace mágico. Los tokens de Supabase vuelven en
+ *    el fragmento (#access_token=…), que el navegador NO manda al
+ *    servidor: desde acá no hay forma de saber que la visita trae una
+ *    sesión. Si el enlace del correo cae en la raíz en vez de en
+ *    /panel, hay que reenviarlo con el fragmento intacto. Eso lo hace
+ *    ahora el script de web.ts (punto 4) y por eso ese script no es
+ *    decoración: sin él, el correo de login lleva a la home y no
+ *    entra nadie.
+ *
+ * 2. Es SOLO del dominio raíz. En el subdominio de un cliente la raíz
+ *    sigue siendo su página de turnos, y /en ahí no existe.
  */
-const PUENTE = `<!doctype html><meta charset="utf-8">
-<title>Uptempo</title>
-<style>body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
-margin:14vh auto;max-width:34rem;padding:0 1.2rem;color:#0b0b0b;background:#f9f9f7}
-a{color:#2a78d6}@media(prefers-color-scheme:dark){body{background:#0d0d0d;color:#fff}}</style>
-<p id="m">Uptempo. <a href="/panel">Ir al panel</a></p>
-<script>
-if (location.hash && location.hash.indexOf('access_token') !== -1) {
-  document.getElementById('m').textContent = 'Entrando…';
-  location.replace('/panel' + location.hash);
+function web(c: any, idioma: 'es' | 'en') {
+  return c.html(paginaWeb(idioma), 200, {
+    // 5 minutos en el navegador, una semana en el borde de Cloudflare
+    // revalidando de fondo. La página es fija y no toca la base, así
+    // que se puede cachear de verdad — pero el `max-age` largo es una
+    // trampa mientras se está editando: se despliega un cambio, se
+    // recarga, y el navegador sigue mostrando la vieja hasta un día
+    // después. Eso se ve igual que "el deploy no funcionó" y ya nos
+    // costó horas una vez con la URL muerta de workers.dev.
+    // `s-maxage` es lo que importa para el costo: el borde sirve la
+    // página sin invocar el Worker.
+    'cache-control': 'public, max-age=300, s-maxage=604800, stale-while-revalidate=604800',
+  });
 }
-</script>`;
+
+app.get('/favicon.svg', c => c.body(faviconSvg(), 200, {
+  'content-type': 'image/svg+xml; charset=utf-8',
+  'cache-control': 'public, max-age=604800, immutable',
+}));
+
+app.get('/en', c => {
+  // En clinicasole.uptempo.uy/en no hay nada que mostrar: la web de
+  // la empresa no vive en el subdominio de un cliente.
+  if (slugDeHost(c.req.header('host') ?? '')) return c.notFound();
+  return web(c, 'en');
+});
 
 // ── Página de turnos y chat ─────────────────────────────────────
 //
@@ -452,7 +477,7 @@ app.get('/', async c => {
   const host = c.req.header('host') ?? '';
   if (esHostDelPanel(host)) return panelDe(c, '/');
   const slug = slugDeHost(host);
-  if (!slug) return c.html(PUENTE);
+  if (!slug) return web(c, 'es');
   return turnosDe(c, slug);
 });
 
