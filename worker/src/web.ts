@@ -67,7 +67,18 @@ type Idioma = 'es' | 'en';
  * Formato: solo digitos, con pais. Ej: '59899123456'.
  */
 const WHATSAPP = '';
-const CORREO = 'hola@uptempo.uy';
+/**
+ * La direccion publica de contacto, una por idioma.
+ *
+ * Son alias de Cloudflare Email Routing y los dos reenvian al mismo
+ * buzon. Se contesta SIEMPRE desde tomas@uptempo.uy (Gmail "Enviar
+ * como" via Resend): el generico es para que escriban, la respuesta
+ * la firma una persona.
+ */
+const CORREO: Record<Idioma, string> = {
+  es: 'contacto@uptempo.uy',
+  en: 'contact@uptempo.uy',
+};
 
 /**
  * La demo publica que se enlaza desde la seccion del caso.
@@ -1007,7 +1018,7 @@ details p{color:var(--niebla);font-size:15.5px;padding:0 40px 24px 0;max-width:7
 function linkContacto(l: Idioma): string {
   if (!WHATSAPP) {
     const asunto = l === 'es' ? 'Consulta para UpTempo' : 'Enquiry for UpTempo';
-    return `mailto:${CORREO}?subject=${encodeURIComponent(asunto)}`;
+    return `mailto:${CORREO[l]}?subject=${encodeURIComponent(asunto)}`;
   }
   const texto = l === 'es'
     ? 'Hola! Vi la web de UpTempo y quiero consultarles algo.'
@@ -1514,7 +1525,7 @@ export function paginaWeb(l: Idioma = 'es'): string {
         <h4>${COPY.pieContacto[l]}</h4>
         <ul>
           <li><a href="${contacto}"${afuera()}>${textoContacto(l)}</a></li>
-          <li><a href="mailto:${CORREO}">${CORREO}</a></li>
+          <li><a href="mailto:${CORREO[l]}">${CORREO[l]}</a></li>
           <li><a href="${rutaOtro}" hreflang="${otro}" lang="${otro}">${COPY.pieIdioma[l]}</a></li>
         </ul>
       </div>
