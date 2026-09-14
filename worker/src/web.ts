@@ -1,3 +1,5 @@
+import { fondoCss, fondoHtml, fondoScript } from './fondo';
+
 /**
  * La web de la empresa: uptempo.uy y uptempo.uy/en
  *
@@ -1296,9 +1298,10 @@ export function paginaWeb(l: Idioma = 'es'): string {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;700;800&family=Chivo+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap">
-<style>${CSS}</style>
+<style>${CSS}${fondoCss}</style>
 </head>
 <body>
+${fondoHtml()}
 <a class="saltar" href="#principal">${COPY.navIrA[l]}</a>
 
 <header class="cabecera">
@@ -1538,6 +1541,7 @@ export function paginaWeb(l: Idioma = 'es'): string {
 </footer>
 
 <script>${SCRIPT}</script>
+<script>${fondoScript}</script>
 </body>
 </html>`;
 }
