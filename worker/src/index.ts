@@ -9,6 +9,7 @@ import { paginaChat } from './chat-web';
 import { paginaPanel } from './panel';
 import { paginaTurnos } from './pagina-turnos';
 import { paginaWeb, faviconSvg } from './web';
+import { enviarContacto } from './contacto';
 import { revisarEnv, textoProblemas, esClaveSecreta } from './config';
 import { hayGoogle } from './google';
 import { procesarRecordatorios } from './recordatorios';
@@ -466,6 +467,19 @@ app.get('/en', c => {
   // la empresa no vive en el subdominio de un cliente.
   if (slugDeHost(c.req.header('host') ?? '')) return c.notFound();
   return web(c, 'en');
+});
+
+/**
+ * El formulario de contacto de la web de la empresa.
+ *
+ * Cerrado en el subdominio de un cliente por la misma razon que /en:
+ * el formulario es de uptempo.uy, y dejarlo abierto en
+ * clinicasole.uptempo.uy le da a cualquiera un segundo endpoint para
+ * mandar correo a contacto@ desde un host que nadie mira.
+ */
+app.post('/api/contacto', c => {
+  if (slugDeHost(c.req.header('host') ?? '')) return c.notFound();
+  return enviarContacto(c);
 });
 
 // ── Página de turnos y chat ─────────────────────────────────────

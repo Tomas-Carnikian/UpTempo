@@ -141,6 +141,26 @@ export async function ocupadoEnCalendar(
   }));
 }
 
+/**
+ * Nuestros eventos se escriben como "libre", no como "ocupado".
+ *
+ * Suena al revés y es la pieza que hace funcionar la capacidad. Desde
+ * la migración 009 la verdad sobre NUESTROS turnos es la base: ahí
+ * está el recurso que ocupa cada uno y ahí se cuenta cuántos entran.
+ * Si además los dejáramos opacos, el freeBusy nos los devolvería como
+ * ocupados, y un turno en una de las dos camillas volvería a cerrar
+ * las dos — exactamente el problema que 009 vino a resolver.
+ *
+ * Lo que queda opaco en ese calendario es solo lo que el dueño anota a
+ * mano, y eso sí cierra el negocio entero: cuando bloquea de 14 a 16,
+ * no hay forma de saber a qué camilla se refiere.
+ *
+ * En el calendario del negocio el turno se sigue viendo igual; lo
+ * único que cambia es que no marca "ocupado" para quien consulte la
+ * disponibilidad de esa agenda.
+ */
+const TRANSPARENCIA = 'transparent';
+
 export async function crearEvento(env: Env, calendarId: string, ev: {
   titulo: string; descripcion: string; inicio: Date; fin: Date; timezone: string;
 }): Promise<string> {
@@ -151,6 +171,7 @@ export async function crearEvento(env: Env, calendarId: string, ev: {
       description: ev.descripcion,
       start: { dateTime: ev.inicio.toISOString(), timeZone: ev.timezone },
       end: { dateTime: ev.fin.toISOString(), timeZone: ev.timezone },
+      transparency: TRANSPARENCIA,
     }),
   });
   return j.id as string;
@@ -164,6 +185,10 @@ export async function moverEvento(
     body: JSON.stringify({
       start: { dateTime: inicio.toISOString(), timeZone: timezone },
       end: { dateTime: fin.toISOString(), timeZone: timezone },
+      // Va también acá, no solo al crear: un evento anterior a la
+      // migración 009 quedó opaco, y moverlo es la ocasión de
+      // corregirlo sin una pasada de mantenimiento.
+      transparency: TRANSPARENCIA,
     }),
   });
 }

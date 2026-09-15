@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Env, Negocio, Cliente, Servicio, Horario } from './tipos';
+import type { Env, Negocio, Cliente, Servicio, Horario, Recurso } from './tipos';
 
 /**
  * El Worker usa la service_role key: bypassa RLS a proposito.
@@ -51,9 +51,9 @@ async function cargar(
   // Un cliente que dejo de pagar no responde: ni el bot, ni la pagina.
   if (cliente.estado === 'baja' || cliente.estado === 'suspendido') return null;
 
-  const [servicios, horarios, kb] = await Promise.all([
+  const [servicios, horarios, kb, recursos] = await Promise.all([
     sb.from('servicios')
-      .select('id, nombre, precio, precio_nota, duracion_min, buffer_min, descripcion, orden, agendable')
+      .select('id, nombre, precio, precio_nota, duracion_min, buffer_min, descripcion, orden, agendable, recurso_id')
       .eq('cliente_id', cliente.id).eq('activo', true).order('orden'),
     sb.from('horarios')
       .select('dia_semana, desde, hasta')
@@ -61,6 +61,15 @@ async function cargar(
     sb.from('base_conocimiento')
       .select('contenido_md')
       .eq('cliente_id', cliente.id).eq('activa', true).maybeSingle(),
+    // Los puestos de trabajo y cuantos hay de cada uno. La mayoria de
+    // los negocios no tiene ninguno cargado y esa lista vacia es
+    // exactamente "un solo puesto", que es el comportamiento de
+    // siempre. Va aca y no en cargarContexto a proposito: se lee una
+    // vez por negocio y queda en la cache del isolate, en vez de una
+    // vez por busqueda de huecos.
+    sb.from('recursos')
+      .select('id, nombre, cantidad')
+      .eq('cliente_id', cliente.id).eq('activo', true).order('orden'),
   ]);
 
   return {
@@ -68,6 +77,7 @@ async function cargar(
     servicios: (servicios.data ?? []) as unknown as Servicio[],
     horarios: (horarios.data ?? []) as unknown as Horario[],
     baseConocimiento: (kb.data as { contenido_md?: string } | null)?.contenido_md ?? '',
+    recursos: (recursos.data ?? []) as unknown as Recurso[],
   };
 }
 

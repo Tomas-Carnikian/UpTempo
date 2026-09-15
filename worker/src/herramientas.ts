@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Env, Negocio, Conversacion } from './tipos';
 import { hashTelefono, normalizarTelefono } from './db';
 import { buscarServicio, buscarHuecos, estaLibre, formatearHueco, localAUTC, FRANJAS,
-         buscarTurnoVigente, yaPaso } from './agenda';
+         buscarTurnoVigente, yaPaso, recursoDe } from './agenda';
 import { fechaISOLocal } from './prompt';
 import { hayGoogle, crearEvento, moverEvento, borrarEvento } from './google';
 
@@ -272,6 +272,14 @@ async function ejecutarInterno(
       const nombrePersona = String(args.nombre ?? '').trim();
       const fin = new Date(inicio.getTime() + servicio.duracion_min * 60_000);
       const calendarId = conCalendario(ctx);
+      // El recurso lo resuelve el CODIGO a partir del servicio. El
+      // modelo no elige camilla ni la ve: no tiene por que.
+      //
+      // Y se congela en la fila, igual que servicio_nombre y
+      // buffer_min: si manana el dueno mueve el servicio a otro
+      // recurso, este turno tiene que seguir contando contra el que
+      // ocupaba. Deducirlo al vuelo reescribe el pasado.
+      const recurso = recursoDe(negocio, servicio);
 
       // Primero el calendario, despues la base. El calendario es lo
       // que el negocio mira; si eso falla, no hay turno.
@@ -295,6 +303,7 @@ async function ejecutarInterno(
         conversacion_id: conversacion.id,
         servicio_id: servicio.id,
         servicio_nombre: servicio.nombre,
+        recurso_id: recurso?.id ?? null,
         inicio: inicio.toISOString(),
         fin: fin.toISOString(),
         buffer_min: servicio.buffer_min,
@@ -382,7 +391,9 @@ async function ejecutarInterno(
       }
 
       try {
-        if (!(await estaLibre(sb, env, negocio, servicio, nueva))) {
+        // El turno que se esta moviendo no compite consigo mismo:
+        // correrlo 15 minutos choca contra su propia fila.
+        if (!(await estaLibre(sb, env, negocio, servicio, nueva, { excluirTurnoId: turno.id }))) {
           return { salida: 'Ese horario no esta libre. Consulta disponibilidad y ofrece otro.' };
         }
       } catch (e: any) {

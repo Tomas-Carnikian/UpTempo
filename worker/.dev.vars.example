@@ -77,3 +77,18 @@ WA_APP_SECRET="..."
 # Opcional. Solo si la versión de la Graph API que usa el código
 # (v21.0) no coincide con la que te muestre el panel de tu app.
 # WA_API_VERSION="v21.0"
+
+# ── Formulario de contacto de la web (contacto.ts) ──────────────
+# Las dos hacen falta para que /api/contacto funcione. Si falta
+# cualquiera, el endpoint contesta 500 y NO manda nada: un formulario
+# público sin captcha es correo basura garantizado a los pocos días.
+
+# Clave de Resend PROPIA del formulario, distinta de la de Gmail
+# ("gmail-send-as"). Una clave por uso, para poder rotar una sin
+# voltear la otra. Resend → API Keys → Create, permiso de envío.
+RESEND_API_KEY="re_..."
+
+# La mitad secreta del par de Cloudflare Turnstile. La otra mitad, la
+# site key, es pública y va hardcodeada en web.ts.
+# Cloudflare → Turnstile → Add widget, dominio uptempo.uy.
+TURNSTILE_SECRET_KEY="0x4AAA..."

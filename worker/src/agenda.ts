@@ -1,17 +1,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Env, Negocio, Servicio } from './tipos';
+import type { Env, Negocio, Servicio, Recurso } from './tipos';
 import { hayGoogle, ocupadoEnCalendar } from './google';
 
 /**
- * Disponibilidad real. Un hueco se ofrece solo si sobrevive a cuatro
+ * Disponibilidad real. Un hueco se ofrece solo si sobrevive a cinco
  * filtros:
  *   1. el horario semanal del negocio,
  *   2. los feriados que cierran y las excepciones del cliente,
- *   3. los turnos ya agendados en la base,
- *   4. lo que esté ocupado en su Google Calendar.
+ *   3. lo que esté ocupado en su Google Calendar,
+ *   4. los turnos que ocupan el negocio entero,
+ *   5. la CAPACIDAD del recurso que ese servicio necesita.
  *
  * Todo eso se carga UNA vez para todo el rango de fechas, no por día:
- * buscar en 21 días eran 63 consultas y ahora son 4.
+ * buscar en 21 días eran 63 consultas y ahora son 3.
+ *
+ * El punto 5 es lo que agregó la migración 009. Antes la pregunta era
+ * "¿hay algo pisando este hueco?" y la respuesta valía para todo el
+ * negocio: una clienta a las 11:00 bloqueaba las 11:00 para todo el
+ * mundo. En una clínica con dos camillas eso es sub-vender la mitad de
+ * la agenda. Ahora la pregunta es "¿cuántas unidades del recurso que
+ * este servicio necesita están ocupadas?".
  */
 
 const PASO_MIN = 15;       // granularidad con que se buscan huecos
@@ -59,7 +67,34 @@ interface Intervalo { inicio: number; fin: number; }
 
 export interface ContextoAgenda {
   tramos: Map<string, Tramo[]>;
-  ocupados: Intervalo[];
+  /**
+   * Lo que cierra el NEGOCIO ENTERO en ese rato:
+   *   - lo que el dueño puso a mano en su Google Calendar,
+   *   - los turnos con `recurso_id` en null.
+   *
+   * Para un negocio sin recursos definidos, TODOS sus turnos caen acá
+   * y esto se comporta igual que el `choca()` de antes de 009.
+   */
+  globales: Intervalo[];
+  /** recurso_id -> los ratos que ya tiene tomados. */
+  porRecurso: Map<string, Intervalo[]>;
+}
+
+/**
+ * ¿Qué recurso necesita este servicio?
+ *
+ * `null` quiere decir "ocupa el negocio entero", y es el caso por
+ * defecto: un negocio sin recursos cargados tiene todos sus servicios
+ * en null y se comporta como siempre.
+ *
+ * Un `recurso_id` que apunta a un recurso que ya no está (lo dieron de
+ * baja) también cae en null, o sea que bloquea todo. Es a propósito:
+ * ante una configuración rota, sobre-bloquear se ve enseguida y
+ * sobre-vender termina en dos clientas en la misma camilla.
+ */
+export function recursoDe(n: Negocio, s: Servicio): Recurso | null {
+  if (!s.recurso_id) return null;
+  return (n.recursos ?? []).find(r => r.id === s.recurso_id) ?? null;
 }
 
 /** Normaliza para comparar nombres de servicio sin acentos ni mayusculas. */
@@ -137,6 +172,7 @@ function aHHMM(min: number): string {
  */
 export async function cargarContexto(
   sb: SupabaseClient, env: Env | null, n: Negocio, fechaDesde: string, dias: number,
+  opts: { excluirTurnoId?: string } = {},
 ): Promise<ContextoAgenda> {
   const tz = n.cliente.timezone;
   const fechaHasta = sumarDias(fechaDesde, dias);
@@ -150,7 +186,7 @@ export async function cargarContexto(
       .eq('cliente_id', n.cliente.id).gte('fecha', fechaDesde).lte('fecha', fechaHasta),
     sb.from('feriados').select('fecha, cierra_por_defecto')
       .gte('fecha', fechaDesde).lte('fecha', fechaHasta).eq('cierra_por_defecto', true),
-    sb.from('turnos').select('inicio, fin, buffer_min')
+    sb.from('turnos').select('id, inicio, fin, buffer_min, recurso_id')
       .eq('cliente_id', n.cliente.id).in('estado', ['agendado', 'confirmado'])
       .lt('inicio', hastaUTC.toISOString()).gt('fin', desdeUTC.toISOString()),
     usaGoogle
@@ -181,23 +217,87 @@ export async function cargarContexto(
       .map(h => ({ desde: aMinutos(h.desde), hasta: aMinutos(h.hasta) })));
   }
 
-  const ocupados: Intervalo[] = [
-    // El buffer del turno que YA existe cuenta como ocupado: si uno
-    // termina 14:00 con 10 min de respiro, el siguiente no puede
-    // empezar 14:00.
-    ...(turnos.data ?? []).map((t: any) => ({
-      inicio: new Date(t.inicio).getTime(),
-      fin: new Date(t.fin).getTime() + ((t.buffer_min as number | null) ?? 0) * 60_000,
-    })),
-    // Lo que el negocio puso a mano en su Google Calendar.
-    ...google,
-  ];
+  // Lo que el negocio puso a mano en su Google Calendar cierra TODO.
+  //
+  // Nuestros propios turnos ya no vuelven por acá: se escriben con
+  // `transparency: 'transparent'` (ver crearEvento en google.ts), así
+  // que el freeBusy no los devuelve. Lo único que queda opaco en ese
+  // calendario es lo que puso el dueño, y eso es justo lo que tiene
+  // que cerrar el negocio entero: cuando bloquea de 14 a 16 no hay
+  // forma de saber a qué camilla se refiere, así que se cierran todas.
+  const globales: Intervalo[] = [...google];
+  const porRecurso = new Map<string, Intervalo[]>();
 
-  return { tramos, ocupados };
+  for (const t of (turnos.data ?? []) as any[]) {
+    // Al reprogramar, el turno que se está moviendo no compite consigo
+    // mismo. Sin esto, correrlo 15 minutos choca contra su propia fila.
+    if (opts.excluirTurnoId && t.id === opts.excluirTurnoId) continue;
+
+    const intervalo: Intervalo = {
+      inicio: new Date(t.inicio).getTime(),
+      // El buffer del turno que YA existe cuenta como ocupado: si uno
+      // termina 14:00 con 10 min de respiro, el siguiente no puede
+      // empezar 14:00.
+      fin: new Date(t.fin).getTime() + ((t.buffer_min as number | null) ?? 0) * 60_000,
+    };
+    const rec = (t.recurso_id as string | null) ?? null;
+    if (rec === null) { globales.push(intervalo); continue; }
+    const lista = porRecurso.get(rec);
+    if (lista) lista.push(intervalo); else porRecurso.set(rec, [intervalo]);
+  }
+
+  return { tramos, globales, porRecurso };
 }
 
-function choca(ctx: ContextoAgenda, inicio: number, fin: number): boolean {
-  return ctx.ocupados.some(o => o.inicio < fin && o.fin > inicio);
+/**
+ * Cuántos intervalos se pisan ENTRE SÍ, como máximo, dentro de
+ * [inicio, fin).
+ *
+ * No alcanza con contar cuántos tocan el rango, y la diferencia
+ * importa. Con capacidad 2, un turno de 10:00 a 10:30 y otro de 11:00
+ * a 11:30 son dos turnos que tocan el rango 10:15-11:15, pero nunca
+ * hay dos a la vez: contándolos planos daría 2, "no hay lugar", y es
+ * mentira. Lo que hay que mirar es la simultaneidad.
+ *
+ * La ocupación solo puede subir donde ARRANCA un intervalo, así que
+ * alcanza con mirar el inicio del rango y cada arranque de adentro.
+ */
+export function ocupacionMaxima(intervalos: Intervalo[], inicio: number, fin: number): number {
+  const cortes = [inicio];
+  for (const o of intervalos) if (o.inicio > inicio && o.inicio < fin) cortes.push(o.inicio);
+
+  let max = 0;
+  for (const p of cortes) {
+    let n = 0;
+    for (const o of intervalos) if (o.inicio <= p && o.fin > p) n++;
+    if (n > max) max = n;
+  }
+  return max;
+}
+
+/**
+ * ¿Entra un turno más de este servicio en [inicio, fin)?
+ *
+ * `recurso` en null = el servicio ocupa el negocio entero: no entra si
+ * hay CUALQUIER cosa pisando, ni un bloqueo del dueño ni un turno de
+ * ningún recurso. Es el comportamiento de siempre y el de un negocio
+ * sin recursos cargados.
+ */
+export function librePara(
+  ctx: ContextoAgenda, recurso: Recurso | null, inicio: number, fin: number,
+): boolean {
+  const pisa = (o: Intervalo) => o.inicio < fin && o.fin > inicio;
+
+  // Un bloqueo del dueño cierra todo, tenga el servicio el recurso que tenga.
+  if (ctx.globales.some(pisa)) return false;
+
+  if (recurso === null) {
+    for (const lista of ctx.porRecurso.values()) if (lista.some(pisa)) return false;
+    return true;
+  }
+
+  const cantidad = Math.max(1, recurso.cantidad || 1);
+  return ocupacionMaxima(ctx.porRecurso.get(recurso.id) ?? [], inicio, fin) + 1 <= cantidad;
 }
 
 interface Candidato extends Hueco { minuto: number; }
@@ -234,6 +334,8 @@ export interface OpcionesBusqueda {
   hastaMin?: number;
   /** Ordena por cercania a esta hora local (minutos) en vez de repartir. */
   cercaDeMin?: number;
+  /** Al reprogramar: el turno que se esta moviendo no compite consigo mismo. */
+  excluirTurnoId?: string;
 }
 
 export const FRANJAS: Record<string, { desdeMin: number; hastaMin: number }> = {
@@ -253,11 +355,13 @@ export async function buscarHuecos(
   fechaDesde: string,
   opts: OpcionesBusqueda = {},
 ): Promise<Hueco[]> {
-  const { cantidad = 3, diasMax = 21, desdeMin = 0, hastaMin = 24 * 60, cercaDeMin } = opts;
+  const { cantidad = 3, diasMax = 21, desdeMin = 0, hastaMin = 24 * 60, cercaDeMin,
+          excluirTurnoId } = opts;
   const tz = n.cliente.timezone;
   const duracion = servicio.duracion_min + servicio.buffer_min;
   const ahora = Date.now();
-  const ctx = await cargarContexto(sb, env, n, fechaDesde, diasMax);
+  const ctx = await cargarContexto(sb, env, n, fechaDesde, diasMax, { excluirTurnoId });
+  const recurso = recursoDe(n, servicio);
   const encontrados: Hueco[] = [];
 
   for (let i = 0; i < diasMax && encontrados.length < cantidad; i++) {
@@ -272,7 +376,7 @@ export async function buscarHuecos(
         if (m < desdeMin || m >= hastaMin) continue;
         const inicio = localAUTC(fecha, aHHMM(m), tz);
         if (inicio.getTime() < ahora + ANTICIPACION_MS) continue;
-        if (choca(ctx, inicio.getTime(), inicio.getTime() + duracion * 60_000)) continue;
+        if (!librePara(ctx, recurso, inicio.getTime(), inicio.getTime() + duracion * 60_000)) continue;
         candidatos.push({
           inicio,
           fin: new Date(inicio.getTime() + servicio.duracion_min * 60_000),
@@ -313,17 +417,18 @@ export async function buscarHuecos(
  */
 export async function estaLibre(
   sb: SupabaseClient, env: Env | null, n: Negocio, servicio: Servicio, inicio: Date,
+  opts: { excluirTurnoId?: string } = {},
 ): Promise<boolean> {
   const tz = n.cliente.timezone;
   const { fecha, hora } = partesLocales(inicio, tz);
-  const ctx = await cargarContexto(sb, env, n, fecha, 1);
+  const ctx = await cargarContexto(sb, env, n, fecha, 1, opts);
 
   const min = aMinutos(hora);
   const duracion = servicio.duracion_min + servicio.buffer_min;
   const dentro = (ctx.tramos.get(fecha) ?? []).some(t => min >= t.desde && min + duracion <= t.hasta);
   if (!dentro) return false;
 
-  return !choca(ctx, inicio.getTime(), inicio.getTime() + duracion * 60_000);
+  return librePara(ctx, recursoDe(n, servicio), inicio.getTime(), inicio.getTime() + duracion * 60_000);
 }
 
 // ── Encontrar EL turno del que se está hablando ─────────────────

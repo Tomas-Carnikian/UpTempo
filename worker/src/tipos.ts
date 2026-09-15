@@ -20,6 +20,18 @@ export interface Env {
   MODELO_EXTRACCION?: string;
   /** Google Places API (New). Solo la usa el generador de demos. */
   GOOGLE_PLACES_KEY?: string;
+  /**
+   * Formulario de contacto de la web (contacto.ts). Las dos hacen
+   * falta: si falta cualquiera, /api/contacto contesta 500 y no manda
+   * nada. Es a proposito — un formulario publico sin captcha es correo
+   * basura garantizado a los pocos dias.
+   *
+   * RESEND_API_KEY es una clave PROPIA, distinta de la de Gmail
+   * ("gmail-send-as"): una clave por uso, para poder rotar una sin
+   * voltear la otra.
+   */
+  RESEND_API_KEY?: string;
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 export type Canal = 'web' | 'whatsapp';
@@ -54,6 +66,20 @@ export interface Cliente {
   silencio_derivacion_h: number;
 }
 
+/**
+ * Un puesto de trabajo con cantidad: "Camillas: 2", "Puesto de uñas: 1".
+ *
+ * Es ANONIMO a proposito: nadie reserva la camilla 2, reserva "una
+ * camilla". Un recurso CON identidad —elegir profesional, "quiero con
+ * Ana"— es otro producto y el doble de alta.
+ */
+export interface Recurso {
+  id: string;
+  nombre: string;
+  /** Cuantos turnos simultaneos admite. 1 = como se comportaba todo antes. */
+  cantidad: number;
+}
+
 export interface Servicio {
   id: string;
   nombre: string;
@@ -64,6 +90,19 @@ export interface Servicio {
   descripcion: string | null;
   orden: number;
   agendable: boolean;
+  /**
+   * Que recurso ocupa este servicio.
+   *
+   * NULL = ocupa el NEGOCIO ENTERO. De ahi salen dos cosas:
+   *   - un cliente sin ningun recurso definido se comporta exacto como
+   *     antes de la migracion 009: todo en null, todo se bloquea entre
+   *     si, capacidad 1;
+   *   - en un cliente CON recursos, un servicio al que se olvidaron de
+   *     asignarle recurso sobre-bloquea en vez de sobre-vender. Es el
+   *     lado correcto del error: se ve enseguida y no termina en dos
+   *     clientas en la misma camilla.
+   */
+  recurso_id: string | null;
 }
 
 export interface Horario {
@@ -78,6 +117,8 @@ export interface Negocio {
   servicios: Servicio[];
   horarios: Horario[];
   baseConocimiento: string;
+  /** Vacio = negocio de un solo puesto. Es el caso por defecto. */
+  recursos: Recurso[];
 }
 
 export interface Conversacion {

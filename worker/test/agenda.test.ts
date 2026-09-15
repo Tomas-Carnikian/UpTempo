@@ -11,7 +11,8 @@
  * vivo contra un calendario real, que es la única forma seria.
  */
 import { buscarServicio, buscarHuecos, estaLibre, localAUTC, formatearHueco, cargarContexto, FRANJAS,
-         buscarTurnoVigente, sobreLaHora, ANTICIPACION_H, yaPaso } from '../src/agenda';
+         buscarTurnoVigente, sobreLaHora, ANTICIPACION_H, yaPaso,
+         recursoDe, librePara, ocupacionMaxima } from '../src/agenda';
 import { limpiarMotivo } from '../src/plantillas';
 import { construirSystem } from '../src/prompt';
 import { hashIdentificador } from '../src/db';
@@ -40,12 +41,13 @@ const SOLE: Negocio = {
   servicios: [
     { id: 's1', nombre: 'Depilación definitiva piernas completas', precio: 2900,
       precio_nota: 'Paquete de 6 sesiones $U 14.500', duracion_min: 60, buffer_min: 10,
-      descripcion: null, orden: 1, agendable: true },
+      descripcion: null, orden: 1, agendable: true, recurso_id: null },
     { id: 's2', nombre: 'Depilación definitiva axilas', precio: 900,
       precio_nota: 'Paquete de 6 $U 4.500', duracion_min: 20, buffer_min: 10,
-      descripcion: null, orden: 2, agendable: true },
+      descripcion: null, orden: 2, agendable: true, recurso_id: null },
     { id: 's3', nombre: 'Limpieza facial profunda', precio: 1800, precio_nota: null,
-      duracion_min: 60, buffer_min: 10, descripcion: null, orden: 4, agendable: true },
+      duracion_min: 60, buffer_min: 10, descripcion: null, orden: 4, agendable: true,
+      recurso_id: null },
   ],
   horarios: [
     { dia_semana: 1, desde: '09:00:00', hasta: '19:00:00' },
@@ -56,13 +58,17 @@ const SOLE: Negocio = {
     { dia_semana: 6, desde: '09:00:00', hasta: '13:00:00' },
   ],
   baseConocimiento: '# Clínica Solé\n\n## Qué no responder\n\nNunca dar consejo clínico.\n',
+  // Sin recursos cargados: un solo puesto. Es el caso por defecto y el
+  // comportamiento que tenía todo antes de la migración 009.
+  recursos: [],
 };
 
 /** Supabase de mentira: le pasamos nosotros feriados, excepciones y turnos. */
 function sbFalso(opts: {
   feriados?: string[];
   excepciones?: Record<string, { cerrado: boolean; desde?: string; hasta?: string }>;
-  turnos?: Array<{ inicio: string; fin: string; buffer_min?: number }>;
+  turnos?: Array<{ inicio: string; fin: string; buffer_min?: number;
+                   recurso_id?: string | null; id?: string }>;
 } = {}) {
   const { feriados = [], excepciones = {}, turnos = [] } = opts;
   return {
@@ -140,6 +146,12 @@ function ocupa(fecha: string, desde: string, hasta: string, buffer_min?: number)
     fin: localAUTC(fecha, hasta, TZ).toISOString(),
     ...(buffer_min === undefined ? {} : { buffer_min }),
   };
+}
+
+/** Lo mismo, pero ocupando un recurso concreto (migración 009). */
+function ocupaEn(recurso_id: string | null, fecha: string, desde: string, hasta: string,
+                 extra: { buffer_min?: number; id?: string } = {}) {
+  return { ...ocupa(fecha, desde, hasta, extra.buffer_min), recurso_id, id: extra.id };
 }
 
 async function main() {
@@ -478,6 +490,133 @@ async function main() {
   comprobar('mañana, obviamente', yaPaso(enHoras(24), ahoraFijo) === false);
 
   // ── El motivo del aviso de derivación ─────────────────────────
+  // ── Recursos y capacidad (migración 009) ──────────────────────
+  //
+  // El problema que resuelven: hasta 009 un turno a las 11:00
+  // bloqueaba las 11:00 para todo el negocio. Una clínica con dos
+  // camillas estaba sub-vendiendo la mitad de su agenda, y el
+  // asistente le decía "no hay lugar" a gente que sí tenía lugar.
+  console.log('\n— recursos y capacidad —');
+
+  const CAMILLAS = { id: 'r1', nombre: 'Camillas', cantidad: 2 };
+  const UNAS     = { id: 'r2', nombre: 'Puesto de uñas', cantidad: 1 };
+
+  // Misma clínica, ahora con dos camillas y un puesto de uñas.
+  // Depilación y masaje comparten camillas; uñas no compite con nadie.
+  const CONRECURSOS: Negocio = {
+    ...SOLE,
+    recursos: [CAMILLAS, UNAS],
+    servicios: [
+      { ...SOLE.servicios[0], recurso_id: 'r1' },                        // depilación → camilla
+      { ...SOLE.servicios[1], recurso_id: 'r1' },                        // otra depilación → camilla
+      { ...SOLE.servicios[2], id: 's9', nombre: 'Uñas esculpidas',
+        duracion_min: 60, buffer_min: 10, recurso_id: 'r2' },            // uñas → su puesto
+      { ...SOLE.servicios[2], id: 's8', nombre: 'Consulta sin asignar',
+        recurso_id: null },                                              // mal configurado, a propósito
+    ],
+  };
+  const depilacion = CONRECURSOS.servicios[0];
+  const otraDepi   = CONRECURSOS.servicios[1];
+  const unas       = CONRECURSOS.servicios[2];
+  const sinAsignar = CONRECURSOS.servicios[3];
+
+  comprobar('un servicio sin recurso_id no consume ningún recurso',
+    recursoDe(SOLE, SOLE.servicios[0]) === null);
+  comprobar('un servicio con recurso_id encuentra su recurso',
+    recursoDe(CONRECURSOS, depilacion)?.id === 'r1');
+  comprobar('un recurso dado de baja se trata como "ocupa todo", no como "libre"',
+    recursoDe({ ...CONRECURSOS, recursos: [] }, depilacion) === null);
+
+  const alas11 = localAUTC(MARTES, '11:00', TZ);
+  const unaCamilla = [ocupaEn('r1', MARTES, '11:00', '12:00', { buffer_min: 10 })];
+  comprobar('con dos camillas, una ocupada NO cierra las 11:00',
+    (await estaLibre(sbFalso({ turnos: unaCamilla }), null, CONRECURSOS, otraDepi, alas11)) === true);
+
+  const dosCamillas = [
+    ocupaEn('r1', MARTES, '11:00', '12:00', { buffer_min: 10 }),
+    ocupaEn('r1', MARTES, '11:00', '12:00', { buffer_min: 10 }),
+  ];
+  comprobar('con las dos camillas ocupadas, la tercera no entra',
+    (await estaLibre(sbFalso({ turnos: dosCamillas }), null, CONRECURSOS, otraDepi, alas11)) === false);
+  comprobar('pero uñas sí, porque es otro puesto',
+    (await estaLibre(sbFalso({ turnos: dosCamillas }), null, CONRECURSOS, unas, alas11)) === true);
+
+  const unasTomado = [ocupaEn('r2', MARTES, '11:00', '12:00', { buffer_min: 10 })];
+  comprobar('el único puesto de uñas ocupado cierra las uñas',
+    (await estaLibre(sbFalso({ turnos: unasTomado }), null, CONRECURSOS, unas, alas11)) === false);
+  comprobar('y no toca las camillas',
+    (await estaLibre(sbFalso({ turnos: unasTomado }), null, CONRECURSOS, depilacion, alas11)) === true);
+
+  // Un turno con recurso_id en null ocupa el negocio entero. Es lo que
+  // pasa con un servicio al que se olvidaron de asignarle recurso: el
+  // error sobre-bloquea, que es el lado correcto para equivocarse.
+  const bloqueaTodo = [ocupaEn(null, MARTES, '11:00', '12:00', { buffer_min: 10 })];
+  comprobar('un turno sin recurso cierra las camillas',
+    (await estaLibre(sbFalso({ turnos: bloqueaTodo }), null, CONRECURSOS, depilacion, alas11)) === false);
+  comprobar('y también las uñas',
+    (await estaLibre(sbFalso({ turnos: bloqueaTodo }), null, CONRECURSOS, unas, alas11)) === false);
+  comprobar('y un servicio sin asignar no entra ni con una sola camilla tomada',
+    (await estaLibre(sbFalso({ turnos: unaCamilla }), null, CONRECURSOS, sinAsignar, alas11)) === false);
+
+  // Un negocio sin recursos cargados tiene que comportarse EXACTO como
+  // antes de 009. Es la prueba que protege a los clientes que ya están.
+  comprobar('sin recursos, un turno sigue cerrando la hora (como antes de 009)',
+    (await estaLibre(sbFalso({ turnos: [ocupa(MARTES, '11:00', '12:00', 10)] }),
+      null, SOLE, SOLE.servicios[0], alas11)) === false);
+
+  comprobar('buscarHuecos ofrece las 11:00 si queda una camilla',
+    (await buscarHuecos(sbFalso({ turnos: unaCamilla }), null, CONRECURSOS, otraDepi, MARTES,
+      { cercaDeMin: 11 * 60, diasMax: 1, cantidad: 1 }))
+      .some(h => fechaDe(h.inicio) === MARTES && hhmm(h.inicio) === '11:00'));
+  comprobar('y deja de ofrecerlas cuando se ocupan las dos',
+    !(await buscarHuecos(sbFalso({ turnos: dosCamillas }), null, CONRECURSOS, otraDepi, MARTES,
+      { diasMax: 1, cantidad: 3 }))
+      .some(h => fechaDe(h.inicio) === MARTES && hhmm(h.inicio) === '11:00'));
+
+  // ── Contar simultaneidad, no cuántos tocan el rango ────────────
+  // Con capacidad 2, un turno de 10:00 a 10:30 y otro de 11:00 a 11:30
+  // son DOS turnos que tocan el rango 10:15-11:15, pero nunca hay dos a
+  // la vez. Contándolos planos daría "no hay lugar", y es mentira.
+  console.log('\n— contar simultaneidad, no coincidencias —');
+  const t10 = { inicio: Date.parse('2026-01-01T10:00:00Z'), fin: Date.parse('2026-01-01T10:30:00Z') };
+  const t11 = { inicio: Date.parse('2026-01-01T11:00:00Z'), fin: Date.parse('2026-01-01T11:30:00Z') };
+  comprobar('dos turnos que no se pisan entre sí cuentan como 1',
+    ocupacionMaxima([t10, t11], Date.parse('2026-01-01T10:15:00Z'),
+                                Date.parse('2026-01-01T11:15:00Z')) === 1);
+  comprobar('dos que sí se pisan cuentan como 2',
+    ocupacionMaxima(
+      [t10, { inicio: Date.parse('2026-01-01T10:15:00Z'), fin: Date.parse('2026-01-01T10:45:00Z') }],
+      Date.parse('2026-01-01T10:00:00Z'), Date.parse('2026-01-01T11:00:00Z')) === 2);
+  comprobar('un rango sin nada cuenta 0', ocupacionMaxima([], 0, 1000) === 0);
+  comprobar('lo que termina justo cuando arranca el rango no cuenta',
+    ocupacionMaxima([t10], t10.fin, t10.fin + 60_000) === 0);
+
+  const ctxCap = { tramos: new Map(), globales: [], porRecurso: new Map([['r1', [t10, t11]]]) };
+  comprobar('con capacidad 2 entra un turno que los cruza a los dos',
+    librePara(ctxCap, CAMILLAS, Date.parse('2026-01-01T10:15:00Z'),
+                                Date.parse('2026-01-01T11:15:00Z')) === true);
+  comprobar('con capacidad 1 no entra',
+    librePara(ctxCap, { ...CAMILLAS, cantidad: 1 }, Date.parse('2026-01-01T10:15:00Z'),
+                                                   Date.parse('2026-01-01T11:15:00Z')) === false);
+  comprobar('un bloqueo global cierra igual aunque sobre capacidad',
+    librePara({ ...ctxCap, globales: [t10] }, CAMILLAS,
+      Date.parse('2026-01-01T10:15:00Z'), Date.parse('2026-01-01T10:20:00Z')) === false);
+
+  // ── Reprogramar no compite consigo mismo ───────────────────────
+  // Sin excluir el turno que se está moviendo, correrlo 15 minutos
+  // choca contra su propia fila y el asistente dice "no está libre".
+  console.log('\n— reprogramar el propio turno —');
+  const propio = [ocupaEn(null, MARTES, '15:00', '16:00', { buffer_min: 10, id: 'T1' })];
+  comprobar('sin excluirlo, moverlo 15 minutos choca contra sí mismo',
+    (await estaLibre(sbFalso({ turnos: propio }), null, SOLE, SOLE.servicios[0],
+      localAUTC(MARTES, '15:15', TZ))) === false);
+  comprobar('excluyéndolo, se puede mover',
+    (await estaLibre(sbFalso({ turnos: propio }), null, SOLE, SOLE.servicios[0],
+      localAUTC(MARTES, '15:15', TZ), { excluirTurnoId: 'T1' })) === true);
+  comprobar('excluir uno no habilita pisar a OTRO turno',
+    (await estaLibre(sbFalso({ turnos: [...propio, ocupaEn(null, MARTES, '15:15', '16:15', { id: 'T2' })] }),
+      null, SOLE, SOLE.servicios[0], localAUTC(MARTES, '15:15', TZ), { excluirTurnoId: 'T1' })) === false);
+
   console.log('\n— el motivo del aviso —');
   comprobar('saca el punto final para que no queden dos',
     limpiarMotivo('no se encuentra turno futuro asociado a su número.')

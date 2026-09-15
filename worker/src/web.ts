@@ -1,4 +1,5 @@
 import { fondoCss, fondoHtml, fondoScript } from './fondo';
+import { contactoCss, contactoHtml, contactoScript } from './contacto';
 
 /**
  * La web de la empresa: uptempo.uy y uptempo.uy/en
@@ -92,6 +93,28 @@ const CORREO: Record<Idioma, string> = {
  * mostrar, va su URL completa.
  */
 const DEMO_PUBLICA = '';
+
+/**
+ * La site key de Cloudflare Turnstile, el captcha del formulario de
+ * contacto. Es PUBLICA por diseño: va escrita en el HTML. La que es
+ * secreta es la otra mitad del par, TURNSTILE_SECRET_KEY, que vive
+ * como secreto del Worker y solo la usa contacto.ts.
+ *
+ * Va hardcodeada y no en Env a proposito: este archivo NO recibe Env
+ * y esa independencia es una propiedad que conviene no perder por un
+ * valor que de todos modos termina impreso en la pagina.
+ *
+ * Vacio = el formulario no existe y los botones siguen siendo mailto:,
+ * exactamente igual que antes. Mismo patron que WHATSAPP: mientras
+ * falte el dato, la web cae sola a lo que ya funcionaba.
+ *
+ * Se saca de Cloudflare → Turnstile → Add widget, dominio uptempo.uy,
+ * y el widget hay que crearlo en MODO INVISIBLE. El codigo ademas lo
+ * monta con appearance:'interaction-only', pero si el widget esta
+ * creado como "Managed", el recuadro de Cloudflare aparece igual
+ * adentro del formulario.
+ */
+const TURNSTILE_SITE_KEY = '0x4AAAAAAE1Av0ki88Kfn6xl';
 
 /** Los cuatro numeros del caso. Verificables en este mismo repo. */
 const NUMEROS = { pruebas: 401, cron: 15, recordatorio: 24 };
@@ -220,8 +243,8 @@ const COPY = {
 
   // ── Hero ──
   heroEtiqueta: t(
-    'Automatización con IA · Montevideo',
-    'AI automation · Montevideo, Uruguay',
+    'Automatización con IA',
+    'AI automation',
   ),
   // El dato va en Instrument Serif cursiva y en hielo: ese contraste
   // —grotesca pesada + serif cursiva en el dato— es EL gesto
@@ -240,8 +263,8 @@ const COPY = {
   ),
   heroPromesa: t('Te devolvemos tu tiempo.', 'We give you your time back.'),
   heroBajada: t(
-    'UpTempo es una agencia de automatización con IA de Montevideo. Escribimos el sistema entero: no revendemos una plataforma con tu logo arriba. Eso es lo que hace que funcione en producción, y lo que nos deja poner el precio que ponemos.',
-    'UpTempo is an AI automation studio based in Montevideo. We write the whole system — we do not resell a platform with your logo on top. That is what makes it work in production, and what lets us charge what we charge.',
+    'UpTempo es una agencia de automatización con IA. Escribimos el sistema entero: no revendemos una plataforma con tu logo arriba. Eso es lo que hace que funcione en producción, y lo que nos deja poner el precio que ponemos.',
+    'UpTempo is an AI automation studio. We write the whole system — we do not resell a platform with your logo on top. That is what makes it work in production, and what lets us charge what we charge.',
   ),
   heroCtaA: t('Ver qué hacemos', 'See what we do'),
   heroCtaB: t('Escribinos', 'Talk to us'),
@@ -398,14 +421,14 @@ const COPY = {
   empresaEtiqueta: t('La empresa', 'The company'),
   empresaTitulo: t('Quién está atrás', 'Who is behind this'),
   empresaP1: t(
-    'UpTempo es una agencia de automatización con IA de Montevideo. Trabajamos con negocios de acá y remoto para afuera. El primero ya está en producción —un agente que atiende, agenda y recuerda por un negocio de turnos— y va a haber más: el criterio para construir el siguiente es siempre el mismo — un trabajo que hoy alguien hace a mano, de noche, que una máquina puede hacer sin inventar nada.',
-    'UpTempo is an AI automation studio in Montevideo, Uruguay. We work with businesses here and remotely elsewhere. The first one is already in production — an agent that answers, books and reminds for a booking business — and there will be more: the bar for building the next one is always the same — work someone does by hand, at night, that a machine can do without making anything up.',
+    'UpTempo es una agencia de automatización con IA. Trabajamos presencial y remoto. El primero ya está en producción —un agente que atiende, agenda y recuerda por un negocio de turnos— y va a haber más: el criterio para construir el siguiente es siempre el mismo — un trabajo que hoy alguien hace a mano, de noche, que una máquina puede hacer sin inventar nada.',
+    'UpTempo is an AI automation studio. We work on-site and remotely. The first one is already in production — an agent that answers, books and reminds for a booking business — and there will be more: the bar for building the next one is always the same — work someone does by hand, at night, that a machine can do without making anything up.',
   ),
   empresaP2: t(
     'No hay gerente de cuentas. Está Tomás, que es quien lo construye y quien te contesta. Cuando algo se rompe, no hay a quién derivarte — y esa es una parte del precio, no una limitación.',
     'There is no account manager. There is Tomás, who builds it and who answers you. When something breaks, there is nobody to pass you along to — and that is part of the price, not a limitation.',
   ),
-  empresaSello1: t('Montevideo, Uruguay', 'Montevideo, Uruguay'),
+  empresaSello1: t('Uruguay', 'Uruguay'),
   empresaSello2: t('API oficiales, nunca puentes no oficiales', 'Official APIs, never unofficial bridges'),
   empresaSello3: t('Ley 18.331 de datos personales', 'Uruguayan data-protection law 18.331'),
 
@@ -1298,7 +1321,7 @@ export function paginaWeb(l: Idioma = 'es'): string {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;700;800&family=Chivo+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap">
-<style>${CSS}${fondoCss}</style>
+<style>${CSS}${fondoCss}${TURNSTILE_SITE_KEY ? contactoCss : ''}</style>
 </head>
 <body>
 ${fondoHtml()}
@@ -1512,7 +1535,7 @@ ${fondoHtml()}
     <div class="pie-grilla">
       <div>
         ${logo(26)}
-        <p class="pie-bajada">${COPY.pieBajada[l]} · Montevideo, Uruguay</p>
+        <p class="pie-bajada">${COPY.pieBajada[l]} · Uruguay</p>
       </div>
       <div>
         <h4>${COPY.pieSecciones[l]}</h4>
@@ -1540,8 +1563,11 @@ ${fondoHtml()}
   </div>
 </footer>
 
+${TURNSTILE_SITE_KEY ? contactoHtml(l, TURNSTILE_SITE_KEY, CORREO[l]) : ''}
+
 <script>${SCRIPT}</script>
 <script>${fondoScript}</script>
+${TURNSTILE_SITE_KEY ? `<script>${contactoScript}</script>` : ''}
 </body>
 </html>`;
 }
